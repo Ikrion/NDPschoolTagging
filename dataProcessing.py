@@ -3,6 +3,7 @@ import pandas as pd
 import math
 import time
 import os
+from datetime import datetime
 
 # --- CONFIGURATION ---
 EMAIL = "zhanghaien100@gmail.com"
@@ -57,7 +58,7 @@ def geocode_address(address, token):
         if res.get("found", 0) > 0:
             result = res["results"][0]
             lat, lon = result['LATITUDE'], result['LONGITUDE']
-            print(f"📍 Found Coordinates for {address}: {lat}, {lon}")
+            #print(f"📍 Found Coordinates for {address}: {lat}, {lon}")
 
             # 2. Use Coordinates to find the official Planning Area
             # This is the "Gold Standard" way to get the region
@@ -68,7 +69,7 @@ def geocode_address(address, token):
             # We get the response object first to check the status
             response = requests.request("GET", area_url, headers=headers)
             #area_res = requests.get(area_url, headers=headers)
-            print(f"📡 Planning Area API Status: {response.status_code}")
+            #print(f"📡 Planning Area API Status: {response.status_code}")
 
             if response.status_code == 200:
                 area_data = response.json()
@@ -99,25 +100,58 @@ def haversine(lat1, lon1, lat2, lon2):
 
 def get_transport_data(token, start_coords, end_coords, mode="pt"):
     """Gets distance and time via Public Transport (pt) or Walk (walk)"""
-    url = "https://www.onemap.gov.sg/api/publictransport/route"
+
+    # 1. Use a valid current date (OneMap hates past dates)
+    current_date = datetime.now().strftime("%m-%d-%Y")  # Format: YYYY-MM-DD MM-DD-YYYY
+    current_time = datetime.now().strftime("%H:%M:%S")  # Format: HH:MM:SS
+
+    url = "https://www.onemap.gov.sg/api/public/routingsvc/route"
     headers = {"Authorization": token}
     # Format: lat,lon
     params = {
         "start": f"{start_coords[0]},{start_coords[1]}",
         "end": f"{end_coords[0]},{end_coords[1]}",
-        "routeType": mode,
-        "date": "2026-02-07",  # Use a weekday
-        "time": "10:00:00"
+        "routeType": "pt",  # Public Transport
+        "date": current_date,  # Must be today or future
+        "time": "13:00:00",  # Morning peak
+        "mode": "TRANSIT",  # Required for pt
+        "maxWalkDistance": "1000"  # Increase walk allowance
     }
-    res = requests.get(url, params=params, headers=headers).json()
-    # Simplified: returns total distance in meters and time in minutes
-    if "request_parameters" in res:
-        # Note: OneMap routing response can be complex; this is a simplified path
-        try:
-            return res['plan']['itineraries'][0]['distance'], res['plan']['itineraries'][0]['duration']
-        except:
-            return None, None
+
+    try:
+        response = requests.get(url, params=params, headers=headers)
+        data = response.json()
+
+        # Debug: If things are failing, uncomment the line below to see why
+        #print(f"DEBUG Routing Response: {data}")
+
+        # In routingsvc, distance is often inside 'route_summary' or 'itineraries'
+        if "plan" in data and "itineraries" in data["plan"]:
+            itinerary = data["plan"]["itineraries"][0]
+
+            # Travel time is in seconds
+            duration_sec = itinerary.get("duration", 0)
+            minutes, seconds = divmod(duration_sec, 60)
+            readable_time = f"{int(minutes)}m {int(seconds)}s"
+            decimal_minutes = round(duration_sec / 60, 2)  # e.g., 12.5
+
+            # Distance is in meters.
+            # If it's not in the top level, check the 'legs'
+            distance_m = itinerary.get("distance", 0)
+
+            if distance_m == 0:
+                # Sum up distance from all legs (walk -> bus -> walk)
+                distance_m = sum(leg.get('distance', 0) for leg in itinerary.get('legs', []))
+
+            return distance_m, decimal_minutes
+
+    except Exception as e:
+        print(f"❌ Error: {e}")
+
     return None, None
+
+
+
 
 
 # --- MAIN LOGIC ---
@@ -166,6 +200,10 @@ def main():
                 # 4. TRANSPORT DISTANCE (API call)
                 # We only call this for schools that passed the regional filter!
                 t_dist, t_time = get_transport_data(token, (u_lat, u_lon), (s_lat, s_lon))
+
+                # Test from SMU (1.296, 103.850) to Orchard (1.304, 103.832)
+                #dist, data_time = get_transport_data(token, (1.296, 103.850), (1.304, 103.832))
+                #print(f"Distance: {dist}m, Time: {data_time}s")
 
                 results.append({
                     "User": user['name'],
