@@ -180,6 +180,8 @@ cython_debug/
 .cursorignore
 .cursorindexingignore
 
-# Excel Files
+# Data Files
+data
+data/
 *.xlsx
 token_cache.txt
