@@ -65,7 +65,7 @@ def geocode_address(address, token):
             # This is the "Gold Standard" way to get the region
             #area_url = "https://www.onemap.gov.sg/api/public/v2/planningarea/getPlanningArea"
             area_url = f"https://www.onemap.gov.sg/api/public/popapi/getPlanningarea?latitude={lat}&longitude={lon}"
-            area_params = {"lat": lat, "log": lon}  # Note: OneMap uses 'log' for longitude here
+            #area_params = {"lat": lat, "log": lon}  # Note: OneMap uses 'log' for longitude here
 
             # We get the response object first to check the status
             response = requests.request("GET", area_url, headers=headers)
@@ -227,13 +227,30 @@ def process_schools(school_excel_path, token):
 def process_user_with_swaps(user_excel_path, school_excel_path, token):
     # --- 1. PREPARE SCHOOL DATA ---
     school_df = pd.read_excel(school_excel_path)
-    # Track assignments: { school_name: [ {user_data, time}, ... ] }
+    # Track current assignments: { 'School Name': [ {user_dict}, ... ] }
     school_assignments = {row['school_name']: [] for _, row in school_df.iterrows()}
-    # Track capacities: { school_name: max_volunteers }
-    school_capacities = {row['school_name']: row.get('max volunteer', 5) for _, row in school_df.iterrows()}
+    # Store School Info (Area, Coords, Max Volunteers)
+    school_info = {}
 
-    # Pre-process schools into buckets (Using your existing process_schools logic)
-    school_buckets = process_schools(school_excel_path, token)
+    max_possible_vols = 0  # Track the largest max_volunteer for header creation
+
+    for _, row in school_df.iterrows():
+        cap = int(row.get('max volunteer', 5))
+        if cap > max_possible_vols: max_possible_vols = cap
+
+        school_info[row['school_name']] = {
+            "area": str(row.get('Planning Area', 'UNKNOWN')).strip().upper(),
+            "coords": (row['Latitude'], row['Longitude']),
+            "max": cap
+        }
+
+    # Pre-process schools into regional buckets for fast lookup
+    school_buckets = {}
+    for s_name, info in school_info.items():
+        area = info['area']
+        if area not in school_buckets:
+            school_buckets[area] = []
+        school_buckets[area].append({"name": s_name, "coords": info['coords']})
 
     # --- 2. PREPARE USER QUEUE & CACHE ---
     user_df = pd.read_excel(user_excel_path)
@@ -250,110 +267,112 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
         current_user = user_queue.popleft()
         u_name = current_user['name']
 
-        # Geocode user to get their area
+        # Geocode the user once
         u_lat, u_lon, u_area = geocode_address(current_user['address'], token)
+        u_area = u_area.strip().upper()
+
+        # Identify schools in the same area
         nearby_schools = school_buckets.get(u_area, [])
 
-        if not nearby_schools:
-            print(f"⚠️ No schools in {u_area} for {u_name}. Skipping.")
-            continue
-
-        # Calculate/Fetch travel times for ALL schools in the area
-        travel_options = []
+        # Calculate/Fetch travel times for all nearby schools
+        options = []
         for school in nearby_schools:
             s_name = school['name']
 
-            # Check cache first
+            # Check cache so we don't call OneMap twice for the same pair
             if (u_name, s_name) in api_cache:
                 dist_m, time_sec = api_cache[(u_name, s_name)]
             else:
                 dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
                 api_cache[(u_name, s_name)] = (dist_m, time_sec)
-                time.sleep(0.2)  # API Rate Limit protection
+                time.sleep(0.2)  # API Throttle
 
             if time_sec is not None:
-                travel_options.append({
-                    'school_name': s_name,
-                    'time_sec': time_sec,
-                    'dist_m': dist_m,
-                    'area': u_area
-                })
+                options.append({'name': s_name, 'time': time_sec, 'dist': dist_m})
 
-        # Sort schools by fastest travel time
-        travel_options.sort(key=lambda x: x['time_sec'])
+        # Sort options: Nearest school first
+        options.sort(key=lambda x: x['time'])
 
+        # Try to assign user to their best available school
         assigned = False
-        for option in travel_options:
-            target_school = option['school_name']
-            u_time = option['time_sec']
+        for opt in options:
+            s_name = opt['name']
+            u_time = opt['time']
+            current_vols = school_assignments[s_name]
+            max_cap = school_info[s_name]['max']
 
-            # Check if user has already been rejected/bumped from this school
-            # (Optional: Add logic to prevent infinite loops)
-
-            current_volunteers = school_assignments[target_school]
-            max_cap = school_capacities[target_school]
-
-            # CASE A: School has space
-            if len(current_volunteers) < max_cap:
-                school_assignments[target_school].append({
-                    'user_data': current_user,
-                    'time_sec': u_time,
-                    'dist_m': option['dist_m'],
-                    'area': u_area
-                })
-                print(f"✅ {u_name} assigned to {target_school} ({u_time // 60} min)")
+            if len(current_vols) < max_cap:
+                school_assignments[s_name].append({'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
                 assigned = True
                 break
-
-            # CASE B: School is full, check for swap (>10 min / 600 sec difference)
             else:
-                # Find the slowest volunteer currently at the school
-                current_volunteers.sort(key=lambda x: x['time_sec'], reverse=True)
-                slowest = current_volunteers[0]
-
-                time_diff = slowest['time_sec'] - u_time
-
-                if time_diff > 600:  # 600 seconds = 10 minutes
-                    # BUMP the slowest person
-                    school_assignments[target_school].pop(0)  # Remove slowest
-                    bumped_user = slowest['user_data']
-
-                    # Add current user
-                    school_assignments[target_school].append({
-                        'user_data': current_user,
-                        'time_sec': u_time,
-                        'dist_m': option['dist_m'],
-                        'area': u_area
-                    })
-
-                    print(f"🔄 {u_name} bumped {bumped_user['name']} from {target_school} (Saved {time_diff // 60} min)")
-
-                    # Put bumped user back in the queue to find a new school
-                    user_queue.append(bumped_user)
+                # 10-minute swap check (600 seconds)
+                current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
+                slowest = current_vols[0]
+                if (slowest['time_sec'] - u_time) > 600:
+                    school_assignments[s_name].pop(0)  # Bump slowest
+                    school_assignments[s_name].append(
+                        {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
+                    user_queue.append(slowest['user_data'])  # Re-queue the bumped person
                     assigned = True
                     break
 
         if not assigned:
-            print(f"❌ {u_name} could not be assigned to any school in {u_area}.")
+            print(f"❌ {u_name} could not be matched in {u_area}.")
 
-    # --- 3. FLATTEN RESULTS & EXPORT ---
-    final_results = []
-    for s_name, volunteers in school_assignments.items():
-        for vol in volunteers:
-            mins, secs = divmod(vol['time_sec'], 60)
-            final_results.append({
-                "School": s_name,
-                "User": vol['user_data']['name'],
-                "Area": vol['area'],
-                "Travel Time": f"{int(mins)}m {int(secs)}s",
-                "Minutes": round(vol['time_sec'] / 60, 2),
-                "Distance (m)": vol['dist_m']
-            })
+        # --- 3. FORMAT DATA FOR HORIZONTAL EXPORT ---
+        final_rows = []
+        max_cols_found = 0
 
-    result_df = pd.DataFrame(final_results)
-    result_df.to_excel("data/final_modeling_assignments.xlsx", index=False)
-    print("🎉 All assignments finalized and saved.")
+        for s_name, volunteers in school_assignments.items():
+            # Sort volunteers for this specific school row (fastest first)
+            volunteers.sort(key=lambda x: x['time_sec'])
 
+            # Start row with base school info
+            row_data = [s_name, school_info[s_name]['max'], school_info[s_name]['area']]
+
+            # Add User 1, Time, Mins, Dist, User 2, Time, Mins, Dist...
+            for vol in volunteers:
+                mins, secs = divmod(vol['time_sec'], 60)
+                row_data.extend([
+                    vol['user_data']['name'],
+                    f"{int(mins)}m {int(secs)}s",
+                    round(vol['time_sec'] / 60, 2),
+                    vol['dist']
+                ])
+
+            # Pad the row with empty values if the school isn't full
+            slots_left = school_info[s_name]['max'] - len(volunteers)
+            if slots_left > 0:
+                row_data.extend([""] * (slots_left * 4))
+
+            final_rows.append(row_data)
+
+            # Track the longest row to create headers later
+            if len(row_data) > max_cols_found:
+                max_cols_found = len(row_data)
+
+        # --- 4. DYNAMIC PADDING & HEADERS ---
+        # Ensure every row is the same length as the longest row
+        for row in final_rows:
+            while len(row) < max_cols_found:
+                row.append("")
+
+        # Build headers based on the actual number of columns (2 + N*4)
+        headers = ["School", "Max Volunteers", "Area"]
+        num_users_in_header = (max_cols_found - 2) // 4
+
+        for i in range(1, num_users_in_header + 1):
+            headers.extend([f"User {i}", "Travel Time", "Minutes", "Distance (m)"])
+
+    # --- 5. EXPORT ---
+    try:
+        output_df = pd.DataFrame(final_rows, columns=headers)
+        output_df.to_excel("data/final_modeling_assignments.xlsx", index=False)
+        print(f"🎉 Success! Processed {len(final_rows)} schools.")
+        print("🎉 All assignments finalized and saved.")
+    except Exception as e:
+        print(f"❌ Export failed: {e}")
 
 # --- MAIN LOGIC ---
 
