@@ -1,3 +1,5 @@
+import json
+
 import requests
 import pandas as pd
 import math
@@ -6,10 +8,14 @@ import os
 from datetime import datetime
 from collections import deque
 
+import geoJSONProcessing
+
 # --- CONFIGURATION ---
 EMAIL = "zhanghaien100@gmail.com"
 PASSWORD = "Blk-457-13@haien"
 TOKEN_FILE = "token_cache.txt"
+geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
+ProcessedGeoJSON_FILE = "data/area_neighbors.json"
 
 # --- HELPER FUNCTIONS ---
 
@@ -45,6 +51,21 @@ def get_valid_token():
 
     return new_token
 
+
+def check_geo_neighbour():
+    # 1. Check if we have a saved processed geoJson file
+    if os.path.exists(ProcessedGeoJSON_FILE):
+        print("GeoJSON neighbour map file exist!")
+        with open(ProcessedGeoJSON_FILE, "r") as f:
+            saved_geofile = json.load(f)
+        return saved_geofile
+
+    print("Generating neighbour map!")
+    geoJSONProcessing.generate_neighbor_map(geoJSON_FILE)
+    with open(ProcessedGeoJSON_FILE, "r") as f:
+        saved_geofile = json.load(f)
+    return saved_geofile
+    #return True
 
 def geocode_address(address, token):
     headers = {"Authorization": token}
@@ -261,6 +282,10 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
     # This prevents re-calling the API if a user is bumped and re-processed
     api_cache = {}
 
+    # Get the planning area neighbour
+    # Used for nearby neighbour planning area searches
+    geoneighbour_dict = check_geo_neighbour()
+
     print(f"🚀 Starting Assignment Logic for {len(user_queue)} users...")
 
     while user_queue:
@@ -271,54 +296,64 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
         u_lat, u_lon, u_area = geocode_address(current_user['address'], token)
         u_area = u_area.strip().upper()
 
-        # Identify schools in the same area
-        nearby_schools = school_buckets.get(u_area, [])
+        # We define a helper block for the matching logic so we don't write it twice
+        def try_assign_to_areas(areas_to_check):
+            options = []
+            for area in areas_to_check:
+                schools_in_area = school_buckets.get(area, [])
+                for school in schools_in_area:
+                    s_name = school['name']
 
-        # Calculate/Fetch travel times for all nearby schools
-        options = []
-        for school in nearby_schools:
-            s_name = school['name']
+                    # API Cache saves us from massive API limits during fallback!
+                    if (u_name, s_name) in api_cache:
+                        dist_m, time_sec = api_cache[(u_name, s_name)]
+                    else:
+                        dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
+                        api_cache[(u_name, s_name)] = (dist_m, time_sec)
+                        time.sleep(0.2)
 
-            # Check cache so we don't call OneMap twice for the same pair
-            if (u_name, s_name) in api_cache:
-                dist_m, time_sec = api_cache[(u_name, s_name)]
-            else:
-                dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
-                api_cache[(u_name, s_name)] = (dist_m, time_sec)
-                time.sleep(0.2)  # API Throttle
+                    if time_sec is not None:
+                        options.append({'name': s_name, 'time': time_sec, 'dist': dist_m, 'area': area})
 
-            if time_sec is not None:
-                options.append({'name': s_name, 'time': time_sec, 'dist': dist_m})
+            # Sort all gathered options from nearest to furthest
+            options.sort(key=lambda x: x['time'])
 
-        # Sort options: Nearest school first
-        options.sort(key=lambda x: x['time'])
+            # Try to assign (Space Available OR 10-Min Swap)
+            for opt in options:
+                s_name = opt['name']
+                u_time = opt['time']
+                current_vols = school_assignments[s_name]
+                max_cap = school_info[s_name]['max']
 
-        # Try to assign user to their best available school
-        assigned = False
-        for opt in options:
-            s_name = opt['name']
-            u_time = opt['time']
-            current_vols = school_assignments[s_name]
-            max_cap = school_info[s_name]['max']
-
-            if len(current_vols) < max_cap:
-                school_assignments[s_name].append({'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
-                assigned = True
-                break
-            else:
-                # 10-minute swap check (600 seconds)
-                current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
-                slowest = current_vols[0]
-                if (slowest['time_sec'] - u_time) > 600:
-                    school_assignments[s_name].pop(0)  # Bump slowest
+                if len(current_vols) < max_cap:
                     school_assignments[s_name].append(
                         {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
-                    user_queue.append(slowest['user_data'])  # Re-queue the bumped person
-                    assigned = True
-                    break
+                    return True  # Success!
+                else:
+                    current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
+                    slowest = current_vols[0]
+                    if (slowest['time_sec'] - u_time) > 600:
+                        school_assignments[s_name].pop(0)
+                        school_assignments[s_name].append(
+                            {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
+                        user_queue.append(slowest['user_data'])
+                        return True  # Success (via Swap)!
 
+            return False  # Failed to assign in these areas
+
+        # --- PHASE 1: Try Primary Area ---
+        assigned = try_assign_to_areas([u_area])
+
+        # --- PHASE 2: Try Neighboring Areas ---
         if not assigned:
-            print(f"❌ {u_name} could not be matched in {u_area}.")
+            neighbors = geoneighbour_dict.get(u_area, [])
+            if neighbors:
+                print(f"⚠️ {u_name} couldn't match in {u_area}. Expanding search to neighbors: {neighbors}")
+                assigned = try_assign_to_areas(neighbors)
+
+        # --- PHASE 3: Total Failure ---
+        if not assigned:
+            print(f"❌ {u_name} completely failed to match in {u_area} AND its neighbors.")
 
         # --- 3. FORMAT DATA FOR HORIZONTAL EXPORT ---
         final_rows = []
@@ -369,7 +404,7 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
     try:
         output_df = pd.DataFrame(final_rows, columns=headers)
         output_df.to_excel("data/final_modeling_assignments.xlsx", index=False)
-        print(f"🎉 Success! Processed {len(final_rows)} schools.")
+        print(f"🎉 Success! Processed {len(final_rows)} schools and {len(user_df.to_dict('records'))} users.")
         print("🎉 All assignments finalized and saved.")
     except Exception as e:
         print(f"❌ Export failed: {e}")
@@ -378,6 +413,7 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
 
 def main():
     token = get_valid_token()
+
 
     # 1. Load your data (Assuming Excel for this example)
     # user_df = pd.read_excel("data/users.xlsx")
