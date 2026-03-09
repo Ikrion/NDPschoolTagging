@@ -14,6 +14,9 @@ import geoJSONProcessing
 EMAIL = "zhanghaien100@gmail.com"
 PASSWORD = "Blk-457-13@haien"
 TOKEN_FILE = "token_cache.txt"
+dataset_id = "d_2cc750190544007400b2cfd5d7f53209"
+#geoJsonurl = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+local_filename = 'data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson'
 geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
 ProcessedGeoJSON_FILE = "data/area_neighbors.json"
 
@@ -52,20 +55,113 @@ def get_valid_token():
     return new_token
 
 
-def check_geo_neighbour():
-    # 1. Check if we have a saved processed geoJson file
-    if os.path.exists(ProcessedGeoJSON_FILE):
-        print("GeoJSON neighbour map file exist!")
-        with open(ProcessedGeoJSON_FILE, "r") as f:
-            saved_geofile = json.load(f)
-        return saved_geofile
+def download_geojson_with_polling():
 
-    print("Generating neighbour map!")
-    geoJSONProcessing.generate_neighbor_map(geoJSON_FILE)
-    with open(ProcessedGeoJSON_FILE, "r") as f:
-        saved_geofile = json.load(f)
-    return saved_geofile
-    #return True
+    #print(f"📡 Requesting download for dataset: {dataset_id}")
+
+    initiate_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/initiate-download"
+    poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
+    #local_filename = 'data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson'
+
+    os.makedirs('data', exist_ok=True)
+
+    try:
+        # --- STEP 1: INITIATE ---
+        print(f"🚀 Initiating download for {dataset_id}...")
+        init_res = requests.get(initiate_url)  # Note: Some v1 endpoints require POST to initiate
+        init_data = init_res.json()
+
+        print (f"Init code: {init_data.get('code')}")
+        if init_data.get('code') != 0:
+            print(f"❌ Initialization failed: {init_data.get('errorMsg')}")
+            return False
+
+        time.sleep(10)  # Give it 10 seconds between API request
+        # --- STEP 2: POLL ---
+        print("⏳ Polling for file readiness...")
+        for attempt in range(12):  # Try for 60 seconds (12 * 5s)
+            poll_res = requests.get(poll_url)
+            poll_data = poll_res.json()
+
+            # Debug: Uncomment the line below if you get more errors to see the raw response
+            print(f"DEBUG: {poll_data}")
+            print (f"Poll Code: {poll_data.get('code')}")
+            if poll_data.get('code') != 0:
+                # Only print error if code is NOT 1
+                print(f"❌ API Error: {poll_data.get('errorMsg')}")
+                return False
+
+            # The important part: Check the nested 'data' object
+            data_block = poll_data.get('data', {})
+            #status = data_block.get('status')
+
+            download_link = data_block.get('url')
+            if not download_link:
+                print("❌ Status COMPLETED but no URL found in response.")
+                return False
+
+            print("✅ File ready! Downloading now...")
+            file_response = requests.get(download_link)
+            if file_response.status_code == 200:
+                with open(local_filename, 'wb') as f:
+                    f.write(file_response.content)
+                print(f"📂 Saved to {local_filename}")
+                return True
+
+            # if status == 'COMPLETED':
+            #     download_link = data_block.get('url')
+            #     if not download_link:
+            #         print("❌ Status COMPLETED but no URL found in response.")
+            #         return False
+            #
+            #     print("✅ File ready! Downloading now...")
+            #     file_response = requests.get(download_link)
+            #     if file_response.status_code == 200:
+            #         with open(local_filename, 'wb') as f:
+            #             f.write(file_response.content)
+            #         print(f"📂 Saved to {local_filename}")
+            #         return True
+            #
+            # elif status == 'FAILED':
+            #     print("❌ Server failed to generate the dataset.")
+            #     return False
+            #
+            # else:
+            #     # If status is PENDING or still preparing
+            #     print(f"   ...Status: {status} (Attempt {attempt + 1})")
+            #     time.sleep(7)  # Give it 7 seconds between checks
+
+    except Exception as e:
+        print(f"❌ Logic error: {e}")
+
+    return False
+
+
+def check_geo_neighbour():
+    # 1. Check if the final neighbor map already exists
+    if os.path.exists(ProcessedGeoJSON_FILE):
+        with open(ProcessedGeoJSON_FILE, "r") as f:
+            return json.load(f)
+
+    # 2. Check if the raw GeoJSON exists; if not, download it
+    if not os.path.exists(local_filename):
+        success = download_geojson_with_polling()
+        if not success:
+            return None  # Stop if download failed
+
+    # 3. Generate the neighbor map using your GeoPandas processing script
+    print("⚙️ Generating neighbor map (this may take a moment)...")
+    try:
+        geoJSONProcessing.generate_neighbor_map(local_filename)
+        with open(ProcessedGeoJSON_FILE, "r") as f:
+            return json.load(f)
+    except Exception as e:
+        # If it fails here, the file is likely a 'bad' download (XML error)
+        print(f"❌ Format Error: {e}")
+        print("🗑️ Removing invalid file. Please try running again.")
+        if os.path.exists(local_filename):
+            os.remove(local_filename)
+        return None
 
 def geocode_address(address, token):
     headers = {"Authorization": token}
@@ -420,87 +516,10 @@ def main():
     # school_df = pd.read_excel("data/schools.xlsx")
     user_file_path = "data/users.xlsx"
     school_file_path = "data/schools.xlsx"
-
-    # Mock Data for testing
-    user_data = [{"name": "User A", "address": "730123"}]  # Tampines
-    school_data = [
-        {"name": "School X", "address": "730556", "area": "WOODLANDS"},  # Same Area
-        {"name": "School Y", "address": "640502", "area": "JURONG WEST"}  # Different Area
-    ]
+    
+    #geoneighbour_dict = check_geo_neighbour()
 
     process_user_with_swaps(user_file_path, school_file_path, token)
-
-    # results = []
-    #
-    # for user in user_data:
-    #     print(f"Processing {user['name']}...")
-    #     u_lat, u_lon, u_area = geocode_address(user['address'], token)
-    #     print(f"User is in area: {u_area}")  # DEBUG LINE
-    #
-    #     if not u_lat:
-    #         print("Could not find user location!")
-    #         continue
-    #
-    #     # 2. REGIONAL FILTERING
-    #     # Only check schools in the same Planning Area
-    #     nearby_schools = [s for s in school_data if s['area'] == u_area]
-    #
-    #     for school in nearby_schools:
-    #         print(f"Checking school: {school['name']} in {school['area']}")  # DEBUG LINE
-    #         s_lat, s_lon, _ = geocode_address(school['address'], token)
-    #
-    #         if school['area'].upper() == u_area.upper():  # Force uppercase for matching
-    #             print(f"✅ Match found for {school['name']}!")
-    #
-    #             s_lat, s_lon, _ = geocode_address(school['address'], token)
-    #
-    #             # 3. HAVERSINE DISTANCE (Instant)
-    #             h_dist = haversine(u_lat, u_lon, s_lat, s_lon)
-    #
-    #             # 4. TRANSPORT DISTANCE (API call)
-    #             # We only call this for schools that passed the regional filter!
-    #             t_dist, t_time = get_transport_data(token, (u_lat, u_lon), (s_lat, s_lon))
-    #
-    #             # Test from SMU (1.296, 103.850) to Orchard (1.304, 103.832)
-    #             #dist, data_time = get_transport_data(token, (1.296, 103.850), (1.304, 103.832))
-    #             #print(f"Distance: {dist}m, Time: {data_time}s")
-    #
-    #             results.append({
-    #                 "User": user['name'],
-    #                 "School": school['name'],
-    #                 "Region": u_area,
-    #                 "Straight_Dist_km": round(h_dist, 2),
-    #                 "Transport_Dist_m": t_dist,
-    #                 "Travel_Time_sec": t_time
-    #             })
-    #             time.sleep(0.1)  # Small delay to be nice to the API
-    #         else:
-    #             print(f"❌ {school['name']} is too far (different region).")
-    #
-    #         # 3. HAVERSINE DISTANCE (Instant)
-    #         #h_dist = haversine(u_lat, u_lon, s_lat, s_lon)
-    #
-    #         # 4. TRANSPORT DISTANCE (API call)
-    #         # We only call this for schools that passed the regional filter!
-    #         #t_dist, t_time = get_transport_data(token, (u_lat, u_lon), (s_lat, s_lon))
-    #
-    #         # results.append({
-    #         #     "User": user['name'],
-    #         #     "School": school['name'],
-    #         #     "Region": u_area,
-    #         #     "Straight_Dist_km": round(h_dist, 2),
-    #         #     "Transport_Dist_m": t_dist,
-    #         #     "Travel_Time_sec": t_time
-    #         # })
-    #         # time.sleep(0.1)  # Small delay to be nice to the API
-    #
-    # # 5. Output to Excel
-    # if not results:
-    #     print("⚠️ No matches found. Excel will be empty.")
-    # else:
-    #     output_df = pd.DataFrame(results)
-    #     output_df.to_excel("data/matching_results.xlsx", index=False)
-    #     print(f"Successfully saved {len(results)} rows to Excel.")
 
 
 if __name__ == "__main__":
