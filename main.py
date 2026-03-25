@@ -17,11 +17,16 @@ if __name__ == '__main__':
     print("Please select an option. Enter the number, thx.")
     print("1. Auto Tagging of everyone")
     print("2. Single tagging of a user")
+    print("3. Geocode all schools")
     user_choice = int(input("Please select an option: "))
     if user_choice == 1:
         dataProcessing.main()
     elif user_choice == 2:
         print ("Current option is still WIP! Check back in the future!")
+    elif user_choice == 3:
+        token = dataProcessing.get_token()
+        school_file_path = "data/schools.xlsx"
+        dataProcessing.process_schools(school_file_path, token)
     else :
         print ("Please select an option. Enter the number, thx.")
 

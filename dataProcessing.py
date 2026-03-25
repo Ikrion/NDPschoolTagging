@@ -14,9 +14,7 @@ import geoJSONProcessing
 EMAIL = "zhanghaien100@gmail.com"
 PASSWORD = "Blk-457-13@haien"
 TOKEN_FILE = "token_cache.txt"
-dataset_id = "d_2cc750190544007400b2cfd5d7f53209"
 #geoJsonurl = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
-local_filename = 'data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson'
 geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
 ProcessedGeoJSON_FILE = "data/area_neighbors.json"
 
@@ -55,88 +53,6 @@ def get_valid_token():
     return new_token
 
 
-def download_geojson_with_polling():
-
-    #print(f"📡 Requesting download for dataset: {dataset_id}")
-
-    initiate_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/initiate-download"
-    poll_url = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
-    #local_filename = 'data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson'
-
-    os.makedirs('data', exist_ok=True)
-
-    try:
-        # --- STEP 1: INITIATE ---
-        print(f"🚀 Initiating download for {dataset_id}...")
-        init_res = requests.get(initiate_url)  # Note: Some v1 endpoints require POST to initiate
-        init_data = init_res.json()
-
-        print (f"Init code: {init_data.get('code')}")
-        if init_data.get('code') != 0:
-            print(f"❌ Initialization failed: {init_data.get('errorMsg')}")
-            return False
-
-        time.sleep(10)  # Give it 10 seconds between API request
-        # --- STEP 2: POLL ---
-        print("⏳ Polling for file readiness...")
-        for attempt in range(12):  # Try for 60 seconds (12 * 5s)
-            poll_res = requests.get(poll_url)
-            poll_data = poll_res.json()
-
-            # Debug: Uncomment the line below if you get more errors to see the raw response
-            print(f"DEBUG: {poll_data}")
-            print (f"Poll Code: {poll_data.get('code')}")
-            if poll_data.get('code') != 0:
-                # Only print error if code is NOT 1
-                print(f"❌ API Error: {poll_data.get('errorMsg')}")
-                return False
-
-            # The important part: Check the nested 'data' object
-            data_block = poll_data.get('data', {})
-            #status = data_block.get('status')
-
-            download_link = data_block.get('url')
-            if not download_link:
-                print("❌ Status COMPLETED but no URL found in response.")
-                return False
-
-            print("✅ File ready! Downloading now...")
-            file_response = requests.get(download_link)
-            if file_response.status_code == 200:
-                with open(local_filename, 'wb') as f:
-                    f.write(file_response.content)
-                print(f"📂 Saved to {local_filename}")
-                return True
-
-            # if status == 'COMPLETED':
-            #     download_link = data_block.get('url')
-            #     if not download_link:
-            #         print("❌ Status COMPLETED but no URL found in response.")
-            #         return False
-            #
-            #     print("✅ File ready! Downloading now...")
-            #     file_response = requests.get(download_link)
-            #     if file_response.status_code == 200:
-            #         with open(local_filename, 'wb') as f:
-            #             f.write(file_response.content)
-            #         print(f"📂 Saved to {local_filename}")
-            #         return True
-            #
-            # elif status == 'FAILED':
-            #     print("❌ Server failed to generate the dataset.")
-            #     return False
-            #
-            # else:
-            #     # If status is PENDING or still preparing
-            #     print(f"   ...Status: {status} (Attempt {attempt + 1})")
-            #     time.sleep(7)  # Give it 7 seconds between checks
-
-    except Exception as e:
-        print(f"❌ Logic error: {e}")
-
-    return False
-
-
 def check_geo_neighbour():
     # 1. Check if the final neighbor map already exists
     if os.path.exists(ProcessedGeoJSON_FILE):
@@ -144,24 +60,25 @@ def check_geo_neighbour():
             return json.load(f)
 
     # 2. Check if the raw GeoJSON exists; if not, download it
-    if not os.path.exists(local_filename):
-        success = download_geojson_with_polling()
+    if not os.path.exists(geoJSON_FILE):
+        success = geoJSONProcessing.download_geojson_with_polling()
         if not success:
             return None  # Stop if download failed
 
     # 3. Generate the neighbor map using your GeoPandas processing script
     print("⚙️ Generating neighbor map (this may take a moment)...")
     try:
-        geoJSONProcessing.generate_neighbor_map(local_filename)
+        geoJSONProcessing.generate_neighbor_map(geoJSON_FILE)
         with open(ProcessedGeoJSON_FILE, "r") as f:
             return json.load(f)
     except Exception as e:
         # If it fails here, the file is likely a 'bad' download (XML error)
         print(f"❌ Format Error: {e}")
         print("🗑️ Removing invalid file. Please try running again.")
-        if os.path.exists(local_filename):
-            os.remove(local_filename)
+        if os.path.exists(geoJSON_FILE):
+            os.remove(geoJSON_FILE)
         return None
+
 
 def geocode_address(address, token):
     headers = {"Authorization": token}
@@ -193,7 +110,7 @@ def geocode_address(address, token):
                 area_data = response.json()
                 if isinstance(area_data, list) and len(area_data) > 0:
                     area_name = area_data[0].get('pln_area_n', 'UNKNOWN').upper()
-                    print(f"🗺️ Area identified as: {area_name}")
+                    #print(f"🗺️ Area identified as: {area_name}")
                     return float(lat), float(lon), area_name
                 else:
                     print(f"⚠️ Area API returned empty list for these coordinates.")
@@ -341,6 +258,255 @@ def process_schools(school_excel_path, token):
     return school_buckets
 
 
+def process_with_priority(user_excel_path, school_excel_path, token, neighbors_path):
+    # --- 1. PREPARE SCHOOL DATA ---
+    school_df = pd.read_excel(school_excel_path)
+    school_assignments = {row['school_name']: [] for _, row in school_df.iterrows()}
+    school_info = {}
+
+    for _, row in school_df.iterrows():
+        s_name = row['school_name']
+        school_info[s_name] = {
+            "area": str(row.get('Planning Area', 'UNKNOWN')).strip().upper(),
+            "coords": (row['Latitude'], row['Longitude']),
+            "max": int(row.get('max volunteer', 5))
+        }
+
+    # Group schools by area for fast lookup
+    school_buckets = {}
+    for s_name, info in school_info.items():
+        area = info['area']
+        if area not in school_buckets: school_buckets[area] = []
+        school_buckets[area].append({"name": s_name, "coords": info['coords']})
+
+    # --- 2. PREPARE USER DATA & PRIORITY QUEUE & neighbor data ---
+    user_df = pd.read_excel(user_excel_path)
+    priority_col = user_df.columns[0]
+
+    # Sort by Priority Level (1 is highest) then convert to deque
+    user_df = user_df.sort_values(by=priority_col, ascending=True)
+    user_queue = deque(user_df.to_dict('records'))
+
+    unassigned_users = []
+    api_cache = {}
+
+    try:
+        with open(neighbors_path, 'r') as f:
+            area_neighbors = json.load(f)
+        print(f"🗺️ Neighbor map loaded from: {neighbors_path}")
+    except FileNotFoundError:
+        print(f"⚠️ Error: {neighbors_path} not found. Fallback logic will be disabled.")
+        area_neighbors = {}
+    except json.JSONDecodeError:
+        print(f"⚠️ Error: {neighbors_path} is corrupted. Fallback logic will be disabled.")
+        area_neighbors = {}
+
+    # --- 3. THE ASSIGNMENT HELPER FUNCTION ---
+    def try_assign_to_areas(areas_to_check, current_user, u_lat, u_lon):
+        u_name = current_user['name']
+        u_priority = int(current_user[priority_col])
+        options = []
+
+        for area in areas_to_check:
+            schools_in_area = school_buckets.get(area.upper(), [])
+            for school in schools_in_area:
+                s_name = school['name']
+
+                # Check Cache to save API hits
+                if (u_name, s_name) in api_cache:
+                    dist_m, time_sec = api_cache[(u_name, s_name)]
+                else:
+                    # Logic assumes get_transport_data is defined globally
+                    dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
+                    api_cache[(u_name, s_name)] = (dist_m, time_sec)
+                    time.sleep(0.1)
+
+                # Filter: Travel time must be <= 1 hour (3600 seconds)
+                if time_sec is not None and time_sec <= 3600:
+                    options.append({'name': s_name, 'time': time_sec, 'dist': dist_m})
+
+        # Sort options: Nearest first
+        options.sort(key=lambda x: x['time'])
+
+        for opt in options:
+            s_name = opt['name']
+            u_time = opt['time']
+            current_vols = school_assignments[s_name]
+            max_cap = school_info[s_name]['max']
+
+            # Case A: Slot available
+            if len(current_vols) < max_cap:
+                school_assignments[s_name].append({'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
+                print(f"{current_user['name']} is assigned to {s_name} in {school_info[s_name]['area']}.")
+                return True
+
+            # Case B: School full - Priority Bumping Logic
+            else:
+                print(f"{s_name} school is full, trying to swap user.")
+                current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
+                slowest = current_vols[0]
+                slowest_priority = int(slowest['user_data'][priority_col])
+
+                can_bump = False
+                if u_priority < slowest_priority:
+                    can_bump = True  # Higher priority always bumps lower
+                elif u_priority == slowest_priority and (slowest['time_sec'] - u_time) > 600:
+                    can_bump = True  # Same priority bumps if 10 mins faster
+
+                if can_bump:
+                    school_assignments[s_name].pop(0)
+                    school_assignments[s_name].append(
+                        {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
+                    user_queue.append(slowest['user_data'])  # Re-queue the bumped person
+                    print(f"{current_user['name']} is swap with {slowest['user_data']['name']} in school {s_name}.")
+                    return True
+        return False
+
+    # --- 4. MAIN PROCESSING LOOP ---
+    print(f"🚀 Starting processing for {len(user_queue)} users...")
+    while user_queue:
+        current_user = user_queue.popleft()
+        u_name = current_user['name']
+        u_priority = int(current_user[priority_col])
+
+        if u_priority == 4:
+            unassigned_users.append(current_user)
+            continue
+
+        # Logic assumes geocode_address is defined globally
+        u_lat, u_lon, u_area = geocode_address(current_user['address'], token)
+        u_area = u_area.strip().upper()
+
+        # Attempt Phase 1: Own Area
+        print(f"\nTrying to assign {current_user['name']} to {u_area}")
+        assigned = try_assign_to_areas([u_area], current_user, u_lat, u_lon)
+
+        # Attempt Phase 2: Neighboring Areas
+        if not assigned:
+            print(f"{current_user['name']} is instead getting assign to a neighbor area near {u_area}.")
+            neighbors = area_neighbors.get(u_area, [])
+            assigned = try_assign_to_areas(neighbors, current_user, u_lat, u_lon)
+
+        # Phase 3: Global Search (Only for Level 1 & 2)
+        if not assigned and u_priority in [1, 2]:
+            print(f"🌍 Priority {u_priority} Global Search for {current_user['name']}...")
+            # Get all areas except the ones we already checked
+            already_checked = set([u_area] + area_neighbors.get(u_area, []))
+            all_other_areas = [a for a in school_buckets.keys() if a not in already_checked]
+            assigned = try_assign_to_areas(all_other_areas, current_user, u_lat, u_lon)
+
+        if not assigned:
+            print(f"{current_user['name']} is not assigned as no school with space is available near {u_area}.")
+            unassigned_users.append(current_user)
+
+    # --- 5. DATA PREPARATION FOR EXPORT ---
+    final_rows = []
+    max_cols_found = 0
+
+    for s_name, volunteers in school_assignments.items():
+        volunteers.sort(key=lambda x: x['time_sec'])
+        row_data = [s_name, school_info[s_name]['max'], school_info[s_name]['area']]
+
+        for vol in volunteers:
+            mins, secs = divmod(vol['time_sec'], 60)
+            row_data.extend([
+                vol['user_data']['name'],
+                f"{int(mins)}m {int(secs)}s",
+                round(vol['time_sec'] / 60, 2),
+                vol['dist']
+            ])
+
+        if len(row_data) > max_cols_found: max_cols_found = len(row_data)
+        final_rows.append(row_data)
+
+    for row in final_rows:
+        while len(row) < max_cols_found: row.append("")
+
+    headers = ["School", "Max Volunteers", "Area"]
+    num_users_in_header = (max_cols_found - 3) // 4
+    for i in range(1, num_users_in_header + 1):
+        headers.extend([f"User {i}", "Travel Time", "Minutes", "Distance (m)"])
+
+    # --- 6. CALCULATE SUMMARY STATISTICS ---
+    filled_schools = sum(1 for s_name, vols in school_assignments.items() if len(vols) >= school_info[s_name]['max'])
+    unfilled_schools = len(school_assignments) - filled_schools
+
+    assigned_users_list = [v['user_data'] for vols in school_assignments.values() for v in vols]
+    total_assigned = len(assigned_users_list)
+    total_unassigned = len(unassigned_users)
+
+    def count_priorities(u_list, p_level):
+        return sum(1 for u in u_list if int(u[priority_col]) == p_level)
+
+    summary_data = {
+        "Metric": ["Total Users Allocated", "Total Users Unassigned",
+                   "Level 1: Assigned vs Unassigned", "Level 2: Assigned vs Unassigned",
+                   "Level 3: Assigned vs Unassigned", "Level 4: (Not Assigned by Policy)",
+                   "Schools Fully Filled", "Schools with Remaining Vacancies"],
+        "Value": [total_assigned, total_unassigned,
+                  f"{count_priorities(assigned_users_list, 1)} / {count_priorities(unassigned_users, 1)}",
+                  f"{count_priorities(assigned_users_list, 2)} / {count_priorities(unassigned_users, 2)}",
+                  f"{count_priorities(assigned_users_list, 3)} / {count_priorities(unassigned_users, 3)}",
+                  count_priorities(unassigned_users, 4),
+                  filled_schools, unfilled_schools]
+    }
+    df_summary = pd.DataFrame(summary_data)
+
+    # --- 7. FINAL EXPORT TO THREE SHEETS ---
+    try:
+        df_assignments = pd.DataFrame(final_rows, columns=headers)
+        df_unassigned = pd.DataFrame(unassigned_users)[
+            [priority_col, 'name', 'address']] if unassigned_users else pd.DataFrame(
+            columns=[priority_col, 'name', 'address'])
+        df_unassigned.columns = ['Priority', 'Name', 'Address']
+
+        output_path = "data/final_modeling_assignments_with_priority.xlsx"
+        with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+            df_assignments.to_excel(writer, sheet_name='Assignments', index=False)
+            df_unassigned.to_excel(writer, sheet_name='Unassigned Users', index=False)
+            df_summary.to_excel(writer, sheet_name='Summary Statistics', index=False)
+
+            # Get workbook and worksheet objects
+            workbook = writer.book
+            worksheet_assign = writer.sheets['Assignments']
+
+            # --- NEW: Define the Color Format ---
+            yellow_format = workbook.add_format({'bg_color': '#FFFFE0'})
+            grey_format = workbook.add_format({'bg_color': '#8A8A8A'})
+
+            # --- NEW: Apply Conditional Formatting to Assignments ---
+            # We check if the "User 1" column (Column D, index 3) is empty
+            # OR better yet, check if the VERY LAST user column is empty.
+            num_rows = len(final_rows)
+            num_cols = len(headers)
+
+            # Logic: If the last column of the row is empty (""), highlight row
+            # Excel formula: =$D2="" (Checks if the first user slot is empty)
+            # Or use a more robust check: compare count of users vs Max Volunteers
+            for row_num in range(1, num_rows + 1):
+                # Get the actual number of volunteers in this row from our processing
+                vols_in_row = len(school_assignments[final_rows[row_num - 1][0]])
+                max_cap = final_rows[row_num - 1][1]
+
+                if vols_in_row < max_cap:
+                    # Apply yellow to the entire row (Column A to the end)
+                    worksheet_assign.set_row(row_num, None, yellow_format)
+
+                #Todo: to add a color formatting for any traveling time above 30 min
+
+            # Formatting for Summary Sheet (as before)
+            summary_sheet = writer.sheets['Summary Statistics']
+            summary_sheet.set_column('A:A', 35)
+            summary_sheet.set_column('B:B', 20)
+
+        print(f"🎉 Success! Processed {len(final_rows)} schools and {len(user_df.to_dict('records'))} users.")
+        print(f"📊 Summary: {total_assigned} assigned, {total_unassigned} unassigned.")
+        print(f"🏫 Schools: {filled_schools} full, {unfilled_schools} with vacancies.")
+        print(f"\n✅ All assignments finalized and saved to: {output_path}")
+    except Exception as e:
+        print(f"❌ Export failed: {e}")
+
+
 def process_user_with_swaps(user_excel_path, school_excel_path, token):
     # --- 1. PREPARE SCHOOL DATA ---
     school_df = pd.read_excel(school_excel_path)
@@ -408,8 +574,14 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
                         api_cache[(u_name, s_name)] = (dist_m, time_sec)
                         time.sleep(0.2)
 
-                    if time_sec is not None:
-                        options.append({'name': s_name, 'time': time_sec, 'dist': dist_m, 'area': area})
+                        # --- Time Limit Filter to keep school within 1hr traveling time ---
+                        if time_sec is not None:
+                            if time_sec <= 3600:  # 3600 seconds = 60 minutes
+                                options.append({'name': s_name, 'time': time_sec, 'dist': dist_m, 'area': area})
+                            else:
+                                # Log that the school was found but rejected for being too far
+                                print(
+                                    f"⏳ Skipping {s_name} for {u_name}: Travel time {time_sec // 60} mins exceeds 1hr limit.")
 
             # Sort all gathered options from nearest to furthest
             options.sort(key=lambda x: x['time'])
@@ -421,13 +593,14 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
                 current_vols = school_assignments[s_name]
                 max_cap = school_info[s_name]['max']
 
-                if len(current_vols) < max_cap:
+                if len(current_vols) < max_cap: # space available
                     school_assignments[s_name].append(
                         {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
                     return True  # Success!
                 else:
                     current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
                     slowest = current_vols[0]
+                    # Swap logic: Must be >10 mins faster AND still under 1hr (which u_time is)
                     if (slowest['time_sec'] - u_time) > 600:
                         school_assignments[s_name].pop(0)
                         school_assignments[s_name].append(
@@ -510,16 +683,16 @@ def process_user_with_swaps(user_excel_path, school_excel_path, token):
 def main():
     token = get_valid_token()
 
-
     # 1. Load your data (Assuming Excel for this example)
     # user_df = pd.read_excel("data/users.xlsx")
     # school_df = pd.read_excel("data/schools.xlsx")
     user_file_path = "data/users.xlsx"
     school_file_path = "data/schools.xlsx"
-    
+
     #geoneighbour_dict = check_geo_neighbour()
 
-    process_user_with_swaps(user_file_path, school_file_path, token)
+    # process_user_with_swaps(user_file_path, school_file_path, token)
+    process_with_priority(user_file_path, school_file_path, token, ProcessedGeoJSON_FILE)
 
 
 if __name__ == "__main__":
