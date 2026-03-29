@@ -480,6 +480,7 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
             num_rows = len(final_rows)
             num_cols = len(headers)
 
+            # --- APPLY ROW-LEVEL HIGHLIGHTING (Unfilled Schools) ---
             # Logic: If the last column of the row is empty (""), highlight row
             # Excel formula: =$D2="" (Checks if the first user slot is empty)
             # Or use a more robust check: compare count of users vs Max Volunteers
@@ -492,7 +493,26 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
                     # Apply yellow to the entire row (Column A to the end)
                     worksheet_assign.set_row(row_num, None, yellow_format)
 
-                #Todo: to add a color formatting for any traveling time above 30 min
+            # --- APPLY CELL-LEVEL HIGHLIGHTING (Travel Time >= 30m) ---
+            # We iterate through the school_assignments to find specific cell coordinates
+            for r_idx, (s_name, volunteers) in enumerate(school_assignments.items()):
+                # Volunteers are sorted by time in the final_rows export
+                volunteers.sort(key=lambda x: x['time_sec'])
+
+                for v_idx, vol in enumerate(volunteers):
+                    # Calculation for Travel Time column index:
+                    # School(0), Max(1), Area(2) ...
+                    # User1(3), TIME(4), Mins(5), Dist(6)
+                    # User2(7), TIME(8)...
+                    # Formula: 4 + (v_idx * 4)
+                    time_col_idx = 4 + (v_idx * 4)
+
+                    if vol['time_sec'] >= 1800:  # 30 mins * 60 seconds
+                        mins, secs = divmod(vol['time_sec'], 60)
+                        time_str = f"{int(mins)}m {int(secs)}s"
+
+                        # Overwrite the specific cell with the grey format
+                        worksheet_assign.write(r_idx + 1, time_col_idx, time_str, grey_format)
 
             # Formatting for Summary Sheet (as before)
             summary_sheet = writer.sheets['Summary Statistics']
@@ -503,178 +523,6 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         print(f"📊 Summary: {total_assigned} assigned, {total_unassigned} unassigned.")
         print(f"🏫 Schools: {filled_schools} full, {unfilled_schools} with vacancies.")
         print(f"\n✅ All assignments finalized and saved to: {output_path}")
-    except Exception as e:
-        print(f"❌ Export failed: {e}")
-
-
-def process_user_with_swaps(user_excel_path, school_excel_path, token):
-    # --- 1. PREPARE SCHOOL DATA ---
-    school_df = pd.read_excel(school_excel_path)
-    # Track current assignments: { 'School Name': [ {user_dict}, ... ] }
-    school_assignments = {row['school_name']: [] for _, row in school_df.iterrows()}
-    # Store School Info (Area, Coords, Max Volunteers)
-    school_info = {}
-
-    max_possible_vols = 0  # Track the largest max_volunteer for header creation
-
-    for _, row in school_df.iterrows():
-        cap = int(row.get('max volunteer', 5))
-        if cap > max_possible_vols: max_possible_vols = cap
-
-        school_info[row['school_name']] = {
-            "area": str(row.get('Planning Area', 'UNKNOWN')).strip().upper(),
-            "coords": (row['Latitude'], row['Longitude']),
-            "max": cap
-        }
-
-    # Pre-process schools into regional buckets for fast lookup
-    school_buckets = {}
-    for s_name, info in school_info.items():
-        area = info['area']
-        if area not in school_buckets:
-            school_buckets[area] = []
-        school_buckets[area].append({"name": s_name, "coords": info['coords']})
-
-    # --- 2. PREPARE USER QUEUE & CACHE ---
-    user_df = pd.read_excel(user_excel_path)
-    # Convert users to a list of dictionaries and put in a queue
-    user_queue = deque(user_df.to_dict('records'))
-
-    # Cache to store API results: { (user_name, school_name): (dist, time_sec) }
-    # This prevents re-calling the API if a user is bumped and re-processed
-    api_cache = {}
-
-    # Get the planning area neighbour
-    # Used for nearby neighbour planning area searches
-    geoneighbour_dict = check_geo_neighbour()
-
-    print(f"🚀 Starting Assignment Logic for {len(user_queue)} users...")
-
-    while user_queue:
-        current_user = user_queue.popleft()
-        u_name = current_user['name']
-
-        # Geocode the user once
-        u_lat, u_lon, u_area = geocode_address(current_user['address'], token)
-        u_area = u_area.strip().upper()
-
-        # We define a helper block for the matching logic so we don't write it twice
-        def try_assign_to_areas(areas_to_check):
-            options = []
-            for area in areas_to_check:
-                schools_in_area = school_buckets.get(area, [])
-                for school in schools_in_area:
-                    s_name = school['name']
-
-                    # API Cache saves us from massive API limits during fallback!
-                    if (u_name, s_name) in api_cache:
-                        dist_m, time_sec = api_cache[(u_name, s_name)]
-                    else:
-                        dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
-                        api_cache[(u_name, s_name)] = (dist_m, time_sec)
-                        time.sleep(0.2)
-
-                        # --- Time Limit Filter to keep school within 1hr traveling time ---
-                        if time_sec is not None:
-                            if time_sec <= 3600:  # 3600 seconds = 60 minutes
-                                options.append({'name': s_name, 'time': time_sec, 'dist': dist_m, 'area': area})
-                            else:
-                                # Log that the school was found but rejected for being too far
-                                print(
-                                    f"⏳ Skipping {s_name} for {u_name}: Travel time {time_sec // 60} mins exceeds 1hr limit.")
-
-            # Sort all gathered options from nearest to furthest
-            options.sort(key=lambda x: x['time'])
-
-            # Try to assign (Space Available OR 10-Min Swap)
-            for opt in options:
-                s_name = opt['name']
-                u_time = opt['time']
-                current_vols = school_assignments[s_name]
-                max_cap = school_info[s_name]['max']
-
-                if len(current_vols) < max_cap: # space available
-                    school_assignments[s_name].append(
-                        {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
-                    return True  # Success!
-                else:
-                    current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
-                    slowest = current_vols[0]
-                    # Swap logic: Must be >10 mins faster AND still under 1hr (which u_time is)
-                    if (slowest['time_sec'] - u_time) > 600:
-                        school_assignments[s_name].pop(0)
-                        school_assignments[s_name].append(
-                            {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
-                        user_queue.append(slowest['user_data'])
-                        return True  # Success (via Swap)!
-
-            return False  # Failed to assign in these areas
-
-        # --- PHASE 1: Try Primary Area ---
-        assigned = try_assign_to_areas([u_area])
-
-        # --- PHASE 2: Try Neighboring Areas ---
-        if not assigned:
-            neighbors = geoneighbour_dict.get(u_area, [])
-            if neighbors:
-                print(f"⚠️ {u_name} couldn't match in {u_area}. Expanding search to neighbors: {neighbors}")
-                assigned = try_assign_to_areas(neighbors)
-
-        # --- PHASE 3: Total Failure ---
-        if not assigned:
-            print(f"❌ {u_name} completely failed to match in {u_area} AND its neighbors.")
-
-        # --- 3. FORMAT DATA FOR HORIZONTAL EXPORT ---
-        final_rows = []
-        max_cols_found = 0
-
-        for s_name, volunteers in school_assignments.items():
-            # Sort volunteers for this specific school row (fastest first)
-            volunteers.sort(key=lambda x: x['time_sec'])
-
-            # Start row with base school info
-            row_data = [s_name, school_info[s_name]['max'], school_info[s_name]['area']]
-
-            # Add User 1, Time, Mins, Dist, User 2, Time, Mins, Dist...
-            for vol in volunteers:
-                mins, secs = divmod(vol['time_sec'], 60)
-                row_data.extend([
-                    vol['user_data']['name'],
-                    f"{int(mins)}m {int(secs)}s",
-                    round(vol['time_sec'] / 60, 2),
-                    vol['dist']
-                ])
-
-            # Pad the row with empty values if the school isn't full
-            slots_left = school_info[s_name]['max'] - len(volunteers)
-            if slots_left > 0:
-                row_data.extend([""] * (slots_left * 4))
-
-            final_rows.append(row_data)
-
-            # Track the longest row to create headers later
-            if len(row_data) > max_cols_found:
-                max_cols_found = len(row_data)
-
-        # --- 4. DYNAMIC PADDING & HEADERS ---
-        # Ensure every row is the same length as the longest row
-        for row in final_rows:
-            while len(row) < max_cols_found:
-                row.append("")
-
-        # Build headers based on the actual number of columns (2 + N*4)
-        headers = ["School", "Max Volunteers", "Area"]
-        num_users_in_header = (max_cols_found - 2) // 4
-
-        for i in range(1, num_users_in_header + 1):
-            headers.extend([f"User {i}", "Travel Time", "Minutes", "Distance (m)"])
-
-    # --- 5. EXPORT ---
-    try:
-        output_df = pd.DataFrame(final_rows, columns=headers)
-        output_df.to_excel("data/final_modeling_assignments.xlsx", index=False)
-        print(f"🎉 Success! Processed {len(final_rows)} schools and {len(user_df.to_dict('records'))} users.")
-        print("🎉 All assignments finalized and saved.")
     except Exception as e:
         print(f"❌ Export failed: {e}")
 
@@ -691,7 +539,6 @@ def main():
 
     #geoneighbour_dict = check_geo_neighbour()
 
-    # process_user_with_swaps(user_file_path, school_file_path, token)
     process_with_priority(user_file_path, school_file_path, token, ProcessedGeoJSON_FILE)
 
 
