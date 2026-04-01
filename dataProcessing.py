@@ -257,6 +257,115 @@ def process_schools(school_excel_path, token):
 
     return school_buckets
 
+#Todo: work on making some QOL improvement
+#TOdo: Only need to type the name without knowing their school assignment to swap a user
+def targeted_swap(targets, school_assignments, unassigned_users, school_info, token, api_cache, priority_col):
+    # --- FLEXIBILITY CHECK ---
+    # If the user passed a single dictionary, turn it into a list of one item
+    if isinstance(targets, dict):
+        targets = [targets]
+
+    print(f"\n🔍 Processing {len(targets)} manual swap request(s)...")
+
+    # Keep track of who was successfully swapped
+    swap_results = []
+
+    for target in targets:
+        target_username = target['name']
+
+        #If you don't know the user assigned school, it will help to search
+        if target['school'] == "":
+            #Todo: search for the school that the target user belong to
+            target_school = target['school']
+        else:
+            target_school = target['school']
+
+        print(f"\n   ➔ Seeking replacement for {target_username} at {target_school}...")
+
+        # 1. Verify the target user is actually at this school
+        assigned_list = school_assignments.get(target_school, [])
+        target_record = None
+        for vol in assigned_list:
+            if vol['user_data']['name'] == target_username:
+                target_record = vol
+                break
+
+        if not target_record:
+            print(f"    ⚠️ Error: {target_username} is not currently assigned to {target_school}.")
+            swap_results.append((target_username, False))
+            continue
+
+        school_coords = school_info[target_school]['coords']
+        swap_successful = False
+
+        # 2. Exhaustive Search: Priority 2 first, then Priority 3
+        for priority_level in [2, 3]:
+            # Filter candidates by the current priority level
+            candidates = [u for u in unassigned_users if int(u[priority_col]) == priority_level]
+
+            if not candidates:
+                continue
+
+            print(f"      Scanning {len(candidates)} Level {priority_level} candidates...")
+
+            best_candidate = None
+            best_time = float('inf')
+            best_dist = 0
+
+            for candidate in candidates:
+                c_name = candidate['name']
+
+                # geocode_address must be available in your global script
+                c_lat, c_lon, _ = geocode_address(candidate['address'], token)
+
+                # API Call / Cache Check
+                if (c_name, target_school) in api_cache:
+                    dist_m, time_sec = api_cache[(c_name, target_school)]
+                else:
+                    dist_m, time_sec = get_transport_data(token, (c_lat, c_lon), school_coords)
+                    api_cache[(c_name, target_school)] = (dist_m, time_sec)
+                    time.sleep(0.1)
+
+                    # The Exhaustive Filter: Must be <= 1 hour, and FASTEST so far
+                if time_sec is not None and time_sec <= 3600:
+                    if time_sec < best_time:
+                        best_time = time_sec
+                        best_dist = dist_m
+                        best_candidate = candidate
+
+            # 3. Execute the Swap if a candidate was found
+            if best_candidate:
+                mins, secs = divmod(best_time, 60)
+                print(f"      ✅ SUCCESS: Replaced with {best_candidate['name']} ({int(mins)}m {int(secs)}s commute).")
+
+                # Remove original target from school
+                school_assignments[target_school].remove(target_record)
+
+                # Add new candidate to school
+                school_assignments[target_school].append({
+                    'user_data': best_candidate,
+                    'time_sec': best_time,
+                    'dist': best_dist
+                })
+
+                # Move candidate out of unassigned pool
+                unassigned_users.remove(best_candidate)
+
+                # Move original target into unassigned pool
+                target_record['user_data']['Reason'] = "Swapped out via Phase 4"
+                unassigned_users.append(target_record['user_data'])
+
+                swap_successful = True
+                swap_results.append((target_username, True))
+                break  # Exit the priority tier loop since we found a replacement
+
+        # 4. If neither Priority 2 nor 3 yielded a result
+        if not swap_successful:
+            print(f"      ❌ FAILED: No Priority 2 or 3 users are within 1 hour of {target_school}.")
+            swap_results.append((target_username, False))
+
+    return swap_results
+
 
 def process_with_priority(user_excel_path, school_excel_path, token, neighbors_path):
     # --- 1. PREPARE SCHOOL DATA ---
