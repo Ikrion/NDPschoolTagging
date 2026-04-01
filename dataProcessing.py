@@ -1,5 +1,4 @@
 import json
-
 import requests
 import pandas as pd
 import math
@@ -7,8 +6,11 @@ import time
 import os
 from datetime import datetime
 from collections import deque
-
 import geoJSONProcessing
+import onemapApiHelper
+import jsondatasystem
+import exceldatasystem
+import dataStorageSystem
 
 # --- CONFIGURATION ---
 EMAIL = "zhanghaien100@gmail.com"
@@ -19,40 +21,6 @@ geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
 ProcessedGeoJSON_FILE = "data/area_neighbors.json"
 
 # --- HELPER FUNCTIONS ---
-
-def get_token():
-    auth_url = "https://www.onemap.gov.sg/api/auth/post/getToken"
-    res = requests.post(auth_url, json={"email": EMAIL, "password": PASSWORD})
-    return res.json().get("access_token")
-
-
-def get_valid_token():
-    # 1. Check if we have a saved token
-    if os.path.exists(TOKEN_FILE):
-        with open(TOKEN_FILE, "r") as f:
-            saved_token, expiry_time = f.read().split(",")
-
-        # 2. Check if it's still valid (e.g., within 72 hours)
-        if time.time() < float(expiry_time):
-            print("Using cached token...")
-            return saved_token
-
-    # 3. If no file or expired, request a new one
-    print("Token expired or missing. Requesting new token...")
-    auth_url = "https://www.onemap.gov.sg/api/auth/post/getToken"
-    res = requests.post(auth_url, json={"email": EMAIL, "password": PASSWORD}).json()
-
-    new_token = res.get("access_token")
-    # OneMap tokens last 3 days (259200 seconds)
-    expiry_timestamp = time.time() + 259200
-
-    # 4. Save to local file
-    with open(TOKEN_FILE, "w") as f:
-        f.write(f"{new_token},{expiry_timestamp}")
-
-    return new_token
-
-
 def check_geo_neighbour():
     # 1. Check if the final neighbor map already exists
     if os.path.exists(ProcessedGeoJSON_FILE):
@@ -80,57 +48,67 @@ def check_geo_neighbour():
         return None
 
 
-def geocode_address(address, token):
-    headers = {"Authorization": token}
-
-    # 1. Get Coordinates first
-    search_url = "https://www.onemap.gov.sg/api/common/elastic/search"
-    search_params = {"searchVal": address, "returnGeom": "Y", "getAddrDetails": "Y", "pageNum": "1"}
-
-    try:
-        res = requests.get(search_url, params=search_params, headers=headers).json()
-
-        if res.get("found", 0) > 0:
-            result = res["results"][0]
-            lat, lon = result['LATITUDE'], result['LONGITUDE']
-            #print(f"📍 Found Coordinates for {address}: {lat}, {lon}")
-
-            # 2. Use Coordinates to find the official Planning Area
-            # This is the "Gold Standard" way to get the region
-            #area_url = "https://www.onemap.gov.sg/api/public/v2/planningarea/getPlanningArea"
-            area_url = f"https://www.onemap.gov.sg/api/public/popapi/getPlanningarea?latitude={lat}&longitude={lon}"
-            #area_params = {"lat": lat, "log": lon}  # Note: OneMap uses 'log' for longitude here
-
-            # We get the response object first to check the status
-            response = requests.request("GET", area_url, headers=headers)
-            #area_res = requests.get(area_url, headers=headers)
-            #print(f"📡 Planning Area API Status: {response.status_code}")
-
-            if response.status_code == 200:
-                area_data = response.json()
-                if isinstance(area_data, list) and len(area_data) > 0:
-                    area_name = area_data[0].get('pln_area_n', 'UNKNOWN').upper()
-                    #print(f"🗺️ Area identified as: {area_name}")
-                    return float(lat), float(lon), area_name
-                else:
-                    print(f"⚠️ Area API returned empty list for these coordinates.")
-            else:
-                print(f"❌ Planning Area API Error: {response.text}")
-
-    except Exception as e:
-        print(f"❌ Error during API call: {e}")
-
-    return None, None, "UNKNOWN"
-
-
 def haversine(lat1, lon1, lat2, lon2):
     """Calculates straight-line distance in km"""
-    R = 6371
+    r = 6371
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
-    return R * c
+    return r * c
+
+
+def create_allocation_formatter(school_assignments, school_info, final_rows):
+    """
+    A factory that creates a custom formatting function for our specific school data.
+    """
+
+    def format_excel(workbook, worksheet, sheet_name):
+        # We only want to apply these intense rules to the Assignments sheet
+        if sheet_name != 'Assignments':
+            # For other sheets, maybe just make the headers bold
+            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1})
+            worksheet.set_row(0, None, header_fmt)
+            return
+
+        # --- DEFINE FORMATS ---
+        yellow_row = workbook.add_format({'bg_color': '#FFFFE0'})
+        grey_cell = workbook.add_format({'bg_color': '#D3D3D3'})
+        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2'})
+
+        # Format Header
+        worksheet.set_row(0, None, header_fmt)
+
+        # --- APPLY HIGHLIGHTS ---
+        for r_idx, row in enumerate(final_rows):
+            s_name = row[0]  # School name is the first item in the row
+
+            # Note: We safely get the list, defaulting to empty if not found
+            volunteers = school_assignments.get(s_name, [])
+            max_cap = school_info[s_name]['max']
+
+            # 1. Row-Level Highlight: Unfilled Schools (Light Yellow)
+            if len(volunteers) < max_cap:
+                worksheet.set_row(r_idx + 1, None, yellow_row)
+
+            # 2. Cell-Level Highlight: Travel Time >= 30 mins (Grey)
+            # Ensure the volunteers match the sorted order of the export
+            volunteers_sorted = sorted(volunteers, key=lambda x: x['time_sec'])
+
+            for v_idx, vol in enumerate(volunteers_sorted):
+                # Calculate the exact column index for "Travel Time"
+                # School(0), Max(1), Area(2) | User1(3), TIME(4)...
+                time_col_idx = 4 + (v_idx * 4)
+
+                if vol['time_sec'] >= 1800:  # 30 mins
+                    mins, secs = divmod(vol['time_sec'], 60)
+                    time_str = f"{int(mins)}m {int(secs)}s"
+
+                    # Paint over that specific cell
+                    worksheet.write(r_idx + 1, time_col_idx, time_str, grey_cell)
+
+    # Return the inner function so ExcelStorage can use it
+    return format_excel
 
 
 def get_transport_data(token, start_coords, end_coords, mode="pt"):
@@ -197,7 +175,7 @@ def verify_school_areas(school_excel_path, token):
     print("Checking for changes in Planning Areas...")
     for _, row in fresh_data.iterrows():
         # Call API again to see what it says NOW
-        _, _, fresh_area = geocode_address(row['address'], token)
+        _, _, fresh_area = onemapApiHelper.geocode_address(row['address'], token)
         new_areas.append(fresh_area)
         time.sleep(0.2)
 
@@ -216,6 +194,12 @@ def verify_school_areas(school_excel_path, token):
 
 
 def process_schools(school_excel_path, token):
+    """
+    To process the Excel file containing the school data and save the processed data as a JSON file
+    :param school_excel_path: Path to the Excel file containing the school data
+    :param token: API token to call the onemap API
+    :return: Dictionary containing the school in each area of singapore
+    """
     # --- STEP 1: LOAD DATA ---
     school_df = pd.read_excel(school_excel_path)
     # --- STEP 2: PRE-PROCESS SCHOOLS (The "Bucket" Strategy) ---
@@ -230,7 +214,7 @@ def process_schools(school_excel_path, token):
 
     for _, s_row in school_df.iterrows():
         # Using your working geocode function
-        lat, lon, area = geocode_address(s_row['address'], token)
+        lat, lon, area = onemapApiHelper.geocode_address(s_row['address'], token)
 
         areas.append(area)
         lats.append(lat)
@@ -256,6 +240,7 @@ def process_schools(school_excel_path, token):
     print(f"✅ {school_excel_path} has been updated with new columns.")
 
     return school_buckets
+
 
 #Todo: work on making some QOL improvement
 #TOdo: Only need to type the name without knowing their school assignment to swap a user
@@ -316,7 +301,7 @@ def targeted_swap(targets, school_assignments, unassigned_users, school_info, to
                 c_name = candidate['name']
 
                 # geocode_address must be available in your global script
-                c_lat, c_lon, _ = geocode_address(candidate['address'], token)
+                c_lat, c_lon, _ = onemapApiHelper.geocode_address(candidate['address'], token)
 
                 # API Call / Cache Check
                 if (c_name, target_school) in api_cache:
@@ -483,7 +468,7 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
             continue
 
         # Logic assumes geocode_address is defined globally
-        u_lat, u_lon, u_area = geocode_address(current_user['address'], token)
+        u_lat, u_lon, u_area = onemapApiHelper.geocode_address(current_user['address'], token)
         u_area = u_area.strip().upper()
 
         # Attempt Phase 1: Own Area
@@ -563,82 +548,109 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
 
     # --- 7. FINAL EXPORT TO THREE SHEETS ---
     try:
-        df_assignments = pd.DataFrame(final_rows, columns=headers)
-        df_unassigned = pd.DataFrame(unassigned_users)[
-            [priority_col, 'name', 'address']] if unassigned_users else pd.DataFrame(
-            columns=[priority_col, 'name', 'address'])
-        df_unassigned.columns = ['Priority', 'Name', 'Address']
+        # Prepare the data dictionary for multi-sheet export
+        export_data = {
+            "Assignments": final_rows,
+            "Unassigned Users": unassigned_users,
+            "Summary Statistics": summary_data  # From your pandas summary dataframe
+        }
 
-        output_path = "data/final_modeling_assignments_with_priority.xlsx"
-        with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
-            df_assignments.to_excel(writer, sheet_name='Assignments', index=False)
-            df_unassigned.to_excel(writer, sheet_name='Unassigned Users', index=False)
-            df_summary.to_excel(writer, sheet_name='Summary Statistics', index=False)
+        # Specify exact column headers for sheets that need it
+        export_columns = {
+            "Assignments": headers,
+            "Unassigned Users": ['Priority', 'name', 'address'],
+            "Summary Statistics": ["Metric", "Value"]
+        }
 
-            # Get workbook and worksheet objects
-            workbook = writer.book
-            worksheet_assign = writer.sheets['Assignments']
+        # Generate the custom formatter using your current variables
+        my_formatter = create_allocation_formatter(school_assignments, school_info, final_rows)
 
-            # --- NEW: Define the Color Format ---
-            yellow_format = workbook.add_format({'bg_color': '#FFFFE0'})
-            grey_format = workbook.add_format({'bg_color': '#8A8A8A'})
+        # Initialize the OOP Storage System
+        storage = exceldatasystem.ExcelStorage("data/final_modeling_assignments.xlsx")
+        manager = dataStorageSystem.DataManager(storage)
 
-            # --- NEW: Apply Conditional Formatting to Assignments ---
-            # We check if the "User 1" column (Column D, index 3) is empty
-            # OR better yet, check if the VERY LAST user column is empty.
-            num_rows = len(final_rows)
-            num_cols = len(headers)
-
-            # --- APPLY ROW-LEVEL HIGHLIGHTING (Unfilled Schools) ---
-            # Logic: If the last column of the row is empty (""), highlight row
-            # Excel formula: =$D2="" (Checks if the first user slot is empty)
-            # Or use a more robust check: compare count of users vs Max Volunteers
-            for row_num in range(1, num_rows + 1):
-                # Get the actual number of volunteers in this row from our processing
-                vols_in_row = len(school_assignments[final_rows[row_num - 1][0]])
-                max_cap = final_rows[row_num - 1][1]
-
-                if vols_in_row < max_cap:
-                    # Apply yellow to the entire row (Column A to the end)
-                    worksheet_assign.set_row(row_num, None, yellow_format)
-
-            # --- APPLY CELL-LEVEL HIGHLIGHTING (Travel Time >= 30m) ---
-            # We iterate through the school_assignments to find specific cell coordinates
-            for r_idx, (s_name, volunteers) in enumerate(school_assignments.items()):
-                # Volunteers are sorted by time in the final_rows export
-                volunteers.sort(key=lambda x: x['time_sec'])
-
-                for v_idx, vol in enumerate(volunteers):
-                    # Calculation for Travel Time column index:
-                    # School(0), Max(1), Area(2) ...
-                    # User1(3), TIME(4), Mins(5), Dist(6)
-                    # User2(7), TIME(8)...
-                    # Formula: 4 + (v_idx * 4)
-                    time_col_idx = 4 + (v_idx * 4)
-
-                    if vol['time_sec'] >= 1800:  # 30 mins * 60 seconds
-                        mins, secs = divmod(vol['time_sec'], 60)
-                        time_str = f"{int(mins)}m {int(secs)}s"
-
-                        # Overwrite the specific cell with the grey format
-                        worksheet_assign.write(r_idx + 1, time_col_idx, time_str, grey_format)
-
-            # Formatting for Summary Sheet (as before)
-            summary_sheet = writer.sheets['Summary Statistics']
-            summary_sheet.set_column('A:A', 35)
-            summary_sheet.set_column('B:B', 20)
+        # Save everything with one command
+        manager.save_all(
+            data=export_data,
+            columns=export_columns,
+            format_func=my_formatter
+        )
+        # df_assignments = pd.DataFrame(final_rows, columns=headers)
+        # df_unassigned = pd.DataFrame(unassigned_users)[
+        #     [priority_col, 'name', 'address']] if unassigned_users else pd.DataFrame(
+        #     columns=[priority_col, 'name', 'address'])
+        # df_unassigned.columns = ['Priority', 'Name', 'Address']
+        #
+        # output_path = "data/final_modeling_assignments_with_priority.xlsx"
+        # with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
+        #     df_assignments.to_excel(writer, sheet_name='Assignments', index=False)
+        #     df_unassigned.to_excel(writer, sheet_name='Unassigned Users', index=False)
+        #     df_summary.to_excel(writer, sheet_name='Summary Statistics', index=False)
+        #
+        #     # Get workbook and worksheet objects
+        #     workbook = writer.book
+        #     worksheet_assign = writer.sheets['Assignments']
+        #
+        #     # --- NEW: Define the Color Format ---
+        #     yellow_format = workbook.add_format({'bg_color': '#FFFFE0'})
+        #     grey_format = workbook.add_format({'bg_color': '#8A8A8A'})
+        #
+        #     # --- NEW: Apply Conditional Formatting to Assignments ---
+        #     # We check if the "User 1" column (Column D, index 3) is empty
+        #     # OR better yet, check if the VERY LAST user column is empty.
+        #     num_rows = len(final_rows)
+        #     num_cols = len(headers)
+        #
+        #     # --- APPLY ROW-LEVEL HIGHLIGHTING (Unfilled Schools) ---
+        #     # Logic: If the last column of the row is empty (""), highlight row
+        #     # Excel formula: =$D2="" (Checks if the first user slot is empty)
+        #     # Or use a more robust check: compare count of users vs Max Volunteers
+        #     for row_num in range(1, num_rows + 1):
+        #         # Get the actual number of volunteers in this row from our processing
+        #         vols_in_row = len(school_assignments[final_rows[row_num - 1][0]])
+        #         max_cap = final_rows[row_num - 1][1]
+        #
+        #         if vols_in_row < max_cap:
+        #             # Apply yellow to the entire row (Column A to the end)
+        #             worksheet_assign.set_row(row_num, None, yellow_format)
+        #
+        #     # --- APPLY CELL-LEVEL HIGHLIGHTING (Travel Time >= 30m) ---
+        #     # We iterate through the school_assignments to find specific cell coordinates
+        #     for r_idx, (s_name, volunteers) in enumerate(school_assignments.items()):
+        #         # Volunteers are sorted by time in the final_rows export
+        #         volunteers.sort(key=lambda x: x['time_sec'])
+        #
+        #         for v_idx, vol in enumerate(volunteers):
+        #             # Calculation for Travel Time column index:
+        #             # School(0), Max(1), Area(2) ...
+        #             # User1(3), TIME(4), Mins(5), Dist(6)
+        #             # User2(7), TIME(8)...
+        #             # Formula: 4 + (v_idx * 4)
+        #             time_col_idx = 4 + (v_idx * 4)
+        #
+        #             if vol['time_sec'] >= 1800:  # 30 mins * 60 seconds
+        #                 mins, secs = divmod(vol['time_sec'], 60)
+        #                 time_str = f"{int(mins)}m {int(secs)}s"
+        #
+        #                 # Overwrite the specific cell with the grey format
+        #                 worksheet_assign.write(r_idx + 1, time_col_idx, time_str, grey_format)
+        #
+        #     # Formatting for Summary Sheet (as before)
+        #     summary_sheet = writer.sheets['Summary Statistics']
+        #     summary_sheet.set_column('A:A', 35)
+        #     summary_sheet.set_column('B:B', 20)
 
         print(f"🎉 Success! Processed {len(final_rows)} schools and {len(user_df.to_dict('records'))} users.")
         print(f"📊 Summary: {total_assigned} assigned, {total_unassigned} unassigned.")
         print(f"🏫 Schools: {filled_schools} full, {unfilled_schools} with vacancies.")
-        print(f"\n✅ All assignments finalized and saved to: {output_path}")
+        print(f"\n✅ All assignments finalized and saved to: {manager.storage.getfilepath()}")
     except Exception as e:
         print(f"❌ Export failed: {e}")
 
 # --- MAIN LOGIC ---
 
 def main():
-    token = get_valid_token()
+    token = onemapApiHelper.get_valid_token()
 
     # 1. Load your data (Assuming Excel for this example)
     # user_df = pd.read_excel("data/users.xlsx")
@@ -649,6 +661,24 @@ def main():
     #geoneighbour_dict = check_geo_neighbour()
 
     process_with_priority(user_file_path, school_file_path, token, ProcessedGeoJSON_FILE)
+
+
+    #---Data System Testing---
+    # Choose storage type dynamically
+    # json_store = jsondatasystem.JSONStorage("data.json")
+    # excel_store = exceldatasystem.ExcelStorage("data.xlsx")
+    #
+    # # Plug into manager
+    # manager = dataStorageSystem.DataManager(json_store)
+    #
+    # manager.add_record({"name": "Alice", "age": 25})
+    # manager.add_record({"name": "Bob", "age": 30})
+    #
+    # print(manager.get_all())
+    #
+    # # Switch storage easily
+    # manager = dataStorageSystem.DataManager(excel_store)
+    # manager.add_record({"name": "Charlie", "age": 40})
 
 
 if __name__ == "__main__":

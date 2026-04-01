@@ -1,6 +1,6 @@
 # This is a sample Python script.
 import dataProcessing
-
+import onemapApiHelper
 
 # Press Shift+F10 to execute it or replace it with your code.
 # Press Double Shift to search everywhere for classes, files, tool windows, actions, and settings.
@@ -24,7 +24,7 @@ if __name__ == '__main__':
     elif user_choice == 2:
         print ("Current option is still WIP! Check back in the future!")
     elif user_choice == 3:
-        token = dataProcessing.get_token()
+        token = onemapApiHelper.get_token()
         school_file_path = "data/schools.xlsx"
         dataProcessing.process_schools(school_file_path, token)
     else :
