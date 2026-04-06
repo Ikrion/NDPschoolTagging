@@ -22,7 +22,11 @@ if __name__ == '__main__':
     if user_choice == 1:
         dataProcessing.main()
     elif user_choice == 2:
-        print ("Current option is still WIP! Check back in the future!")
+        inputtedtarget = input("Please enter the names of peoples to be swap! (To enter multiple name put a comma in between each name)")
+        cleanedinputted = inputtedtarget.split(",")
+        massdata_file = "data/final_modeling_assignments_OOP_V2.json"
+        token = onemapApiHelper.get_token()
+        dataProcessing.targeted_swap(cleanedinputted,massdata_file,token)
     elif user_choice == 3:
         token = onemapApiHelper.get_token()
         school_file_path = "data/schools.xlsx"

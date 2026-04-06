@@ -8,9 +8,10 @@ from datetime import datetime
 from collections import deque
 import geoJSONProcessing
 import onemapApiHelper
-import jsondatasystem
-import exceldatasystem
-import dataStorageSystem
+from jsondatasystem import JSONStorage
+from  exceldatasystem import ExcelStorage
+from dataStorageSystem import DataManager
+
 
 # --- CONFIGURATION ---
 EMAIL = "zhanghaien100@gmail.com"
@@ -19,6 +20,8 @@ TOKEN_FILE = "token_cache.txt"
 #geoJsonurl = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
 geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
 ProcessedGeoJSON_FILE = "data/area_neighbors.json"
+user_file_path = "data/users.xlsx"
+school_file_path = "data/schools.xlsx"
 
 # --- HELPER FUNCTIONS ---
 def check_geo_neighbour():
@@ -243,113 +246,127 @@ def process_schools(school_excel_path, token):
 
 
 #Todo: work on making some QOL improvement
-#TOdo: Only need to type the name without knowing their school assignment to swap a user
-def targeted_swap(targets, school_assignments, unassigned_users, school_info, token, api_cache, priority_col):
+def targeted_swap(targets, storage_path, token):
+    """
+    Reworked to load from JSON, find users, swap them,
+    and retire original users to Priority 4.
+    """
+    # Initialize OOP Storage
+    storage = JSONStorage(storage_path)
+    manager = DataManager(storage)
+
+    # 1. LOAD CURRENT STATE
+    full_data = manager.get_all()  # This retrieves the master dict
+    if not full_data:
+        print("❌ Error: Could not load data from storage.")
+        return
+
+    assignments = full_data.get("assignments", {})
+    unassigned = full_data.get("unassigned_users", [])
+
+    # --- Retrieving school coords ---
+    school_df = pd.read_excel(school_file_path)
+    school_assignments = {row['school_name']: [] for _, row in school_df.iterrows()}
+    school_infos = {}
+
+    for _, row in school_df.iterrows():
+        s_name = row['school_name']
+        school_infos[s_name] = {
+            "area": str(row.get('Planning Area', 'UNKNOWN')).strip().upper(),
+            "coords": (row['Latitude'], row['Longitude']),
+            "max": int(row.get('max volunteer', 5))
+        }
+
     # --- FLEXIBILITY CHECK ---
     # If the user passed a single dictionary, turn it into a list of one item
-    if isinstance(targets, dict):
-        targets = [targets]
-
-    print(f"\n🔍 Processing {len(targets)} manual swap request(s)...")
+    # if isinstance(targets, dict):
+    #     targets = [targets]
+    #
+    # print(f"\n🔍 Processing {len(targets)} manual swap request(s)...")
 
     # Keep track of who was successfully swapped
     swap_results = []
 
     for target in targets:
-        target_username = target['name']
 
-        #If you don't know the user assigned school, it will help to search
-        if target['school'] == "":
-            #Todo: search for the school that the target user belong to
-            target_school = target['school']
-        else:
-            target_school = target['school']
+        target_school = None
+        target_user_key = None  # e.g., "User 1"
 
-        print(f"\n   ➔ Seeking replacement for {target_username} at {target_school}...")
+        # 2. FIND TARGET IN ASSIGNMENTS
+        for school_name, school_info in assignments.items():
+            # Iterate through keys like 'User 1', 'User 2'
+            for key, value in school_info.items():
+                if isinstance(value, dict) and value.get("Name") == target:
+                    target_school = school_name
+                    target_user_key = key
+                    break
+            if target_school: break
 
-        # 1. Verify the target user is actually at this school
-        assigned_list = school_assignments.get(target_school, [])
-        target_record = None
-        for vol in assigned_list:
-            if vol['user_data']['name'] == target_username:
-                target_record = vol
-                break
-
-        if not target_record:
-            print(f"    ⚠️ Error: {target_username} is not currently assigned to {target_school}.")
-            swap_results.append((target_username, False))
+        if not target_school:
+            print(f"⚠️ '{target}' not found in active assignments.")
             continue
 
-        school_coords = school_info[target_school]['coords']
-        swap_successful = False
+        print(f"Found {target} at {target_school}. Searching for replacement...")
 
-        # 2. Exhaustive Search: Priority 2 first, then Priority 3
-        for priority_level in [2, 3]:
-            # Filter candidates by the current priority level
-            candidates = [u for u in unassigned_users if int(u[priority_col]) == priority_level]
+        # 3. EXHAUSTIVE SEARCH FOR REPLACEMENT (Priority 2 or 3)
+        # Note: We need school coordinates. In a real DB-first app,
+        # these should be stored in a separate 'schools' table/json.
+        # For now, I'm assuming you have a way to get the school's lat/lon.
+        #school_coords = get_school_coords(target_school)
+        school_coords = school_infos[target_school]["coords"]
 
-            if not candidates:
-                continue
+        best_replacement = None
+        best_time = float('inf')
+        best_dist = 0
 
-            print(f"      Scanning {len(candidates)} Level {priority_level} candidates...")
+        for p_level in [2, 3]:
+            candidates = [u for u in unassigned if int(u.get('Priority', 0)) == p_level]
 
-            best_candidate = None
-            best_time = float('inf')
-            best_dist = 0
+            for cand in candidates:
+                # Get transport data (API/Cache)
+                c_lat, c_lon, _ = onemapApiHelper.geocode_address(cand['Address'], token)
+                dist_m, time_sec = get_transport_data(token, (c_lat, c_lon), school_coords)
 
-            for candidate in candidates:
-                c_name = candidate['name']
+                if time_sec and time_sec <= 3600 and time_sec < best_time and dist_m < best_dist:
+                    best_time = time_sec
+                    best_dist = dist_m
+                    best_replacement = cand
+                    print(f"Current replacement: {best_replacement['Name']}")
 
-                # geocode_address must be available in your global script
-                c_lat, c_lon, _ = onemapApiHelper.geocode_address(candidate['address'], token)
+        # 4. EXECUTE SWAP AND RETIRE
+        if best_replacement:
+            mins, secs = divmod(best_time, 60)
 
-                # API Call / Cache Check
-                if (c_name, target_school) in api_cache:
-                    dist_m, time_sec = api_cache[(c_name, target_school)]
-                else:
-                    dist_m, time_sec = get_transport_data(token, (c_lat, c_lon), school_coords)
-                    api_cache[(c_name, target_school)] = (dist_m, time_sec)
-                    time.sleep(0.1)
+            # A. Prepare the original user for retirement (Priority 4)
+            # We recreate their record to match the 'unassigned' format
+            retired_user = {
+                "Priority": 4,
+                "Name": target,
+                "Address": "Retrieved from original data...",  # Ideally keep original address here
+                "Reason": "Manually swapped and retired to Priority 4"
+            }
 
-                    # The Exhaustive Filter: Must be <= 1 hour, and FASTEST so far
-                if time_sec is not None and time_sec <= 3600:
-                    if time_sec < best_time:
-                        best_time = time_sec
-                        best_dist = dist_m
-                        best_candidate = candidate
+            # B. Update the School Assignment
+            assignments[target_school][target_user_key] = {
+                "Name": best_replacement['Name'],
+                "Travel Time": f"{int(mins)}m {int(secs)}s",
+                "Total Minutes": round(best_time / 60, 2),
+                "Distance (meters)": best_dist
+            }
 
-            # 3. Execute the Swap if a candidate was found
-            if best_candidate:
-                mins, secs = divmod(best_time, 60)
-                print(f"      ✅ SUCCESS: Replaced with {best_candidate['name']} ({int(mins)}m {int(secs)}s commute).")
+            # C. Update Unassigned List
+            unassigned.remove(best_replacement)
+            unassigned.append(retired_user)
 
-                # Remove original target from school
-                school_assignments[target_school].remove(target_record)
+            print(f"✅ Swapped {target} with {best_replacement['Name']}.")
+        else:
+            print(f"❌ No suitable replacement found for {target}.")
 
-                # Add new candidate to school
-                school_assignments[target_school].append({
-                    'user_data': best_candidate,
-                    'time_sec': best_time,
-                    'dist': best_dist
-                })
-
-                # Move candidate out of unassigned pool
-                unassigned_users.remove(best_candidate)
-
-                # Move original target into unassigned pool
-                target_record['user_data']['Reason'] = "Swapped out via Phase 4"
-                unassigned_users.append(target_record['user_data'])
-
-                swap_successful = True
-                swap_results.append((target_username, True))
-                break  # Exit the priority tier loop since we found a replacement
-
-        # 4. If neither Priority 2 nor 3 yielded a result
-        if not swap_successful:
-            print(f"      ❌ FAILED: No Priority 2 or 3 users are within 1 hour of {target_school}.")
-            swap_results.append((target_username, False))
-
-    return swap_results
+    # 5. SAVE BACK TO JSON once all the targets are swap if any
+    full_data["assignments"] = assignments
+    full_data["unassigned_users"] = unassigned
+    manager.save_all(full_data)
+    print("\n💾 Database updated successfully.")
 
 
 def process_with_priority(user_excel_path, school_excel_path, token, neighbors_path):
@@ -464,6 +481,7 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         u_priority = int(current_user[priority_col])
 
         if u_priority == 4:
+            current_user['reason'] = "priority 4, doesn't get assigned."
             unassigned_users.append(current_user)
             continue
 
@@ -491,6 +509,7 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
 
         if not assigned:
             print(f"{current_user['name']} is not assigned as no school with space is available near {u_area}.")
+            current_user['reason'] = f"priority {u_priority}, but unable to find school within 1hr nearby."
             unassigned_users.append(current_user)
 
     # --- 5. DATA PREPARATION FOR EXPORT ---
@@ -546,7 +565,72 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
     }
     df_summary = pd.DataFrame(summary_data)
 
-    # --- 7. FINAL EXPORT TO THREE SHEETS ---
+    # --- 7. FINAL EXPORT TO THREE SHEETS --- Todo: to change to json export
+    # --- 7. FINAL OOP EXPORT TO JSON (NESTED STRUCTURE) ---
+    try:
+        # 1. Prepare Assignments (Build the nested dictionary directly)
+        json_assignments = {}
+
+        for s_name, volunteers in school_assignments.items():
+            # Get the base info for the school
+            school_data = {
+                "Max Volunteers": school_info[s_name]['max'],
+                "Area": school_info[s_name]['area']
+            }
+
+            # Sort volunteers by travel time (fastest first)
+            volunteers_sorted = sorted(volunteers, key=lambda x: x['time_sec'])
+
+            # Dynamically create "User 1", "User 2", etc. inside the school dict
+            for v_idx, vol in enumerate(volunteers_sorted):
+                mins, secs = divmod(vol['time_sec'], 60)
+
+                user_key = f"User {v_idx + 1}"
+                school_data[user_key] = {
+                    "Name": vol['user_data']['name'],
+                    "Travel Time": f"{int(mins)}m {int(secs)}s",
+                    "Total Minutes": round(vol['time_sec'] / 60, 2),
+                    "Distance (meters)": vol['dist']
+                }
+
+            # Assign this fully built block to the school name key
+            json_assignments[s_name] = school_data
+
+        # 2. Prepare Unassigned Users (Clean dictionaries)
+        clean_unassigned = []
+        for u in unassigned_users:
+            clean_unassigned.append({
+                'Priority': u[priority_col],
+                'Name': u['name'],
+                'Address': u['address'],
+                'Reason': u['reason'],
+            })
+
+        # 3. Package everything into one master dictionary
+        export_data = {
+            "assignments": json_assignments,
+            "unassigned_users": clean_unassigned,
+            "summary_statistics": summary_data
+        }
+
+        # 4. Initialize the OOP Storage System for JSON
+        storage = JSONStorage("data/final_modeling_assignments_OOP_V2.json")
+        manager = DataManager(storage)
+
+        # 5. Save everything
+        manager.save_all(export_data)
+
+        print(f"🎉 Success! Processed {len(final_rows)} schools and {len(user_df.to_dict('records'))} users.")
+        print(f"📊 Summary: {total_assigned} assigned, {total_unassigned} unassigned.")
+        print(f"🏫 Schools: {filled_schools} full, {unfilled_schools} with vacancies.")
+        print(f"\n✅ Export complete. Data successfully saved to JSON via OOP DataManager.")
+
+    except Exception as e:
+        print(f"❌ JSON Export failed: {e}")
+        #print(f"\n✅ All assignments finalized and saved to: {manager.storage.getfilepath()}")
+
+
+def exporttoexcel(final_rows, unassigned_users, summary_data, headers, school_assignments, school_info):
     try:
         # Prepare the data dictionary for multi-sheet export
         export_data = {
@@ -566,8 +650,8 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         my_formatter = create_allocation_formatter(school_assignments, school_info, final_rows)
 
         # Initialize the OOP Storage System
-        storage = exceldatasystem.ExcelStorage("data/final_modeling_assignments.xlsx")
-        manager = dataStorageSystem.DataManager(storage)
+        storage = ExcelStorage("data/final_modeling_assignments.xlsx")
+        manager = DataManager(storage)
 
         # Save everything with one command
         manager.save_all(
@@ -575,75 +659,8 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
             columns=export_columns,
             format_func=my_formatter
         )
-        # df_assignments = pd.DataFrame(final_rows, columns=headers)
-        # df_unassigned = pd.DataFrame(unassigned_users)[
-        #     [priority_col, 'name', 'address']] if unassigned_users else pd.DataFrame(
-        #     columns=[priority_col, 'name', 'address'])
-        # df_unassigned.columns = ['Priority', 'Name', 'Address']
-        #
-        # output_path = "data/final_modeling_assignments_with_priority.xlsx"
-        # with pd.ExcelWriter(output_path, engine='xlsxwriter') as writer:
-        #     df_assignments.to_excel(writer, sheet_name='Assignments', index=False)
-        #     df_unassigned.to_excel(writer, sheet_name='Unassigned Users', index=False)
-        #     df_summary.to_excel(writer, sheet_name='Summary Statistics', index=False)
-        #
-        #     # Get workbook and worksheet objects
-        #     workbook = writer.book
-        #     worksheet_assign = writer.sheets['Assignments']
-        #
-        #     # --- NEW: Define the Color Format ---
-        #     yellow_format = workbook.add_format({'bg_color': '#FFFFE0'})
-        #     grey_format = workbook.add_format({'bg_color': '#8A8A8A'})
-        #
-        #     # --- NEW: Apply Conditional Formatting to Assignments ---
-        #     # We check if the "User 1" column (Column D, index 3) is empty
-        #     # OR better yet, check if the VERY LAST user column is empty.
-        #     num_rows = len(final_rows)
-        #     num_cols = len(headers)
-        #
-        #     # --- APPLY ROW-LEVEL HIGHLIGHTING (Unfilled Schools) ---
-        #     # Logic: If the last column of the row is empty (""), highlight row
-        #     # Excel formula: =$D2="" (Checks if the first user slot is empty)
-        #     # Or use a more robust check: compare count of users vs Max Volunteers
-        #     for row_num in range(1, num_rows + 1):
-        #         # Get the actual number of volunteers in this row from our processing
-        #         vols_in_row = len(school_assignments[final_rows[row_num - 1][0]])
-        #         max_cap = final_rows[row_num - 1][1]
-        #
-        #         if vols_in_row < max_cap:
-        #             # Apply yellow to the entire row (Column A to the end)
-        #             worksheet_assign.set_row(row_num, None, yellow_format)
-        #
-        #     # --- APPLY CELL-LEVEL HIGHLIGHTING (Travel Time >= 30m) ---
-        #     # We iterate through the school_assignments to find specific cell coordinates
-        #     for r_idx, (s_name, volunteers) in enumerate(school_assignments.items()):
-        #         # Volunteers are sorted by time in the final_rows export
-        #         volunteers.sort(key=lambda x: x['time_sec'])
-        #
-        #         for v_idx, vol in enumerate(volunteers):
-        #             # Calculation for Travel Time column index:
-        #             # School(0), Max(1), Area(2) ...
-        #             # User1(3), TIME(4), Mins(5), Dist(6)
-        #             # User2(7), TIME(8)...
-        #             # Formula: 4 + (v_idx * 4)
-        #             time_col_idx = 4 + (v_idx * 4)
-        #
-        #             if vol['time_sec'] >= 1800:  # 30 mins * 60 seconds
-        #                 mins, secs = divmod(vol['time_sec'], 60)
-        #                 time_str = f"{int(mins)}m {int(secs)}s"
-        #
-        #                 # Overwrite the specific cell with the grey format
-        #                 worksheet_assign.write(r_idx + 1, time_col_idx, time_str, grey_format)
-        #
-        #     # Formatting for Summary Sheet (as before)
-        #     summary_sheet = writer.sheets['Summary Statistics']
-        #     summary_sheet.set_column('A:A', 35)
-        #     summary_sheet.set_column('B:B', 20)
+        return manager
 
-        print(f"🎉 Success! Processed {len(final_rows)} schools and {len(user_df.to_dict('records'))} users.")
-        print(f"📊 Summary: {total_assigned} assigned, {total_unassigned} unassigned.")
-        print(f"🏫 Schools: {filled_schools} full, {unfilled_schools} with vacancies.")
-        print(f"\n✅ All assignments finalized and saved to: {manager.storage.getfilepath()}")
     except Exception as e:
         print(f"❌ Export failed: {e}")
 
@@ -655,12 +672,25 @@ def main():
     # 1. Load your data (Assuming Excel for this example)
     # user_df = pd.read_excel("data/users.xlsx")
     # school_df = pd.read_excel("data/schools.xlsx")
-    user_file_path = "data/users.xlsx"
-    school_file_path = "data/schools.xlsx"
+
 
     #geoneighbour_dict = check_geo_neighbour()
-
+    start = time.perf_counter()
     process_with_priority(user_file_path, school_file_path, token, ProcessedGeoJSON_FILE)
+    end = time.perf_counter()
+    print(f"Time taken: {end - start:.4f} seconds")
+    # import random
+    #
+    # test = 67
+    # numbers = []
+    # while test != 0:
+    #     numbers.append(random.randrange(2,7))
+    #     test -= 1
+    # random.shuffle(numbers)
+    #
+    # for n in numbers:
+    #     print(f"{n}")
+
 
 
     #---Data System Testing---
