@@ -12,6 +12,8 @@ from jsondatasystem import JSONStorage
 from  exceldatasystem import ExcelStorage
 from dataStorageSystem import DataManager
 
+# Place this near your imports/configuration
+session = requests.Session()
 
 # --- CONFIGURATION ---
 EMAIL = "zhanghaien100@gmail.com"
@@ -135,7 +137,7 @@ def get_transport_data(token, start_coords, end_coords, mode="pt"):
     }
 
     try:
-        response = requests.get(url, params=params, headers=headers)
+        response = session.get(url, params=params, headers=headers)
         data = response.json()
 
         # Debug: If things are failing, uncomment the line below to see why
@@ -245,7 +247,6 @@ def process_schools(school_excel_path, token):
     return school_buckets
 
 
-#Todo: work on making some QOL improvement
 def targeted_swap(targets, storage_path, token):
     """
     Reworked to load from JSON, find users, swap them,
@@ -370,7 +371,11 @@ def targeted_swap(targets, storage_path, token):
 
 
 def process_with_priority(user_excel_path, school_excel_path, token, neighbors_path):
+    # --- Initialize Timing Dictionary ---
+    timings = {}
+    total_start = time.perf_counter()
     # --- 1. PREPARE SCHOOL DATA ---
+    stage1_start = time.perf_counter() # timing start
     school_df = pd.read_excel(school_excel_path)
     school_assignments = {row['school_name']: [] for _, row in school_df.iterrows()}
     school_info = {}
@@ -390,7 +395,10 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         if area not in school_buckets: school_buckets[area] = []
         school_buckets[area].append({"name": s_name, "coords": info['coords']})
 
+    timings["1. Load School Data Timing"] = time.perf_counter() - stage1_start #Timing end
+
     # --- 2. PREPARE USER DATA & PRIORITY QUEUE & neighbor data ---
+    stage2_start = time.perf_counter() # timing start
     user_df = pd.read_excel(user_excel_path)
     priority_col = user_df.columns[0]
 
@@ -398,8 +406,10 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
     user_df = user_df.sort_values(by=priority_col, ascending=True)
     user_queue = deque(user_df.to_dict('records'))
 
+    #cache to save on API calls
     unassigned_users = []
     api_cache = {}
+    user_geo_cache = {}
 
     try:
         with open(neighbors_path, 'r') as f:
@@ -412,70 +422,78 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         print(f"⚠️ Error: {neighbors_path} is corrupted. Fallback logic will be disabled.")
         area_neighbors = {}
 
-    # --- 3. THE ASSIGNMENT HELPER FUNCTION ---
+    timings["2. Load User Data & Neighbors Timing"] = time.perf_counter() - stage2_start #timing end
+    # --- 3. THE ASSIGNMENT HELPER FUNCTION (OPTIMIZED) ---
     def try_assign_to_areas(areas_to_check, current_user, u_lat, u_lon):
         u_name = current_user['name']
         u_priority = int(current_user[priority_col])
-        options = []
 
+        # Step A: Gather all potential schools and calculate straight-line distance
+        potential_schools = []
         for area in areas_to_check:
-            schools_in_area = school_buckets.get(area.upper(), [])
-            for school in schools_in_area:
-                s_name = school['name']
+            for school in school_buckets.get(area.upper(), []):
+                # This takes 0.0001 seconds (No API call)
+                dist_km = haversine(u_lat, u_lon, school['coords'][0], school['coords'][1])
+                potential_schools.append({'school': school, 'dist_km': dist_km})
 
-                # Check Cache to save API hits
-                if (u_name, s_name) in api_cache:
-                    dist_m, time_sec = api_cache[(u_name, s_name)]
-                else:
-                    # Logic assumes get_transport_data is defined globally
-                    dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
-                    api_cache[(u_name, s_name)] = (dist_m, time_sec)
-                    time.sleep(0.1)
+        # Step B: Sort by physical distance first
+        potential_schools.sort(key=lambda x: x['dist_km'])
 
-                # Filter: Travel time must be <= 1 hour (3600 seconds)
-                if time_sec is not None and time_sec <= 3600:
-                    options.append({'name': s_name, 'time': time_sec, 'dist': dist_m})
+        # Step C: Evaluate one by one, and EXIT EARLY once assigned
+        for item in potential_schools:
+            school = item['school']
+            s_name = school['name']
 
-        # Sort options: Nearest first
-        options.sort(key=lambda x: x['time'])
-
-        for opt in options:
-            s_name = opt['name']
-            u_time = opt['time']
-            current_vols = school_assignments[s_name]
-            max_cap = school_info[s_name]['max']
-
-            # Case A: Slot available
-            if len(current_vols) < max_cap:
-                school_assignments[s_name].append({'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
-                print(f"{current_user['name']} is assigned to {s_name} in {school_info[s_name]['area']}.")
-                return True
-
-            # Case B: School full - Priority Bumping Logic
+            # Check Cache to save API hits, this part is to get the distance from the user house to the school so
+            # that we can calculate if the user is close to the school or other user is closer.
+            # It doesn't matter if the school is full as long as the traveling time is 10 min faster, the user
+            # will get assigned to the school, replacing the slowest of the user that is currently assigned
+            if (u_name, s_name) in api_cache:
+                dist_m, time_sec = api_cache[(u_name, s_name)]
             else:
-                print(f"{s_name} school is full, trying to swap user.")
-                current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
-                slowest = current_vols[0]
-                slowest_priority = int(slowest['user_data'][priority_col])
+                dist_m, time_sec = get_transport_data(token, (u_lat, u_lon), school['coords'])
+                api_cache[(u_name, s_name)] = (dist_m, time_sec)
+                #time.sleep(0.1)  # Respect API limits (I don't think this is need as the code that will
+                # continue running will most likely help to delay the API from running too fast
 
-                can_bump = False
-                if u_priority < slowest_priority:
-                    can_bump = True  # Higher priority always bumps lower
-                elif u_priority == slowest_priority and (slowest['time_sec'] - u_time) > 600:
-                    can_bump = True  # Same priority bumps if 10 mins faster
+            # Filter: Travel time must be <= 1 hour (3600 seconds) before checking the slot and etc
+            # This first filter is helpful only when the user is checking for school that are not in their original area
+            if time_sec is not None and time_sec <= 3600:
+                current_vols = school_assignments[s_name]
+                max_cap = school_info[s_name]['max']
 
-                if can_bump:
-                    school_assignments[s_name].pop(0)
+                # Case A: Slot available
+                if len(current_vols) < max_cap:
                     school_assignments[s_name].append(
-                        {'user_data': current_user, 'time_sec': u_time, 'dist': opt['dist']})
-                    user_queue.append(slowest['user_data'])  # Re-queue the bumped person
-                    print(f"{current_user['name']} is swap with {slowest['user_data']['name']} in school {s_name}.")
-                    return True
+                        {'user_data': current_user, 'time_sec': time_sec, 'dist': dist_m})
+                    print(f"{u_name} is assigned to {s_name} in {school_info[s_name]['area']}.")
+                    return True  # BOOM! We exit the function, saving dozens of API calls.
+                # Case B: School full - Priority Bumping Logic
+                else:
+                    current_vols.sort(key=lambda x: x['time_sec'], reverse=True)
+                    slowest = current_vols[0]
+                    slowest_priority = int(slowest['user_data'][priority_col])
+
+                    can_bump = False
+                    if u_priority < slowest_priority:
+                        can_bump = True
+                    elif u_priority == slowest_priority and (slowest['time_sec'] - time_sec) > 600:
+                        can_bump = True
+
+                    if can_bump:
+                        school_assignments[s_name].pop(0)
+                        school_assignments[s_name].append(
+                            {'user_data': current_user, 'time_sec': time_sec, 'dist': dist_m})
+                        user_queue.append(slowest['user_data'])
+                        print(f"{u_name} swapped with {slowest['user_data']['name']} in {s_name}.")
+                        return True  # Exit early!
         return False
 
     # --- 4. MAIN PROCESSING LOOP ---
+    stage4_start = time.perf_counter() #timing start
     print(f"🚀 Starting processing for {len(user_queue)} users...")
     while user_queue:
+        user_start = time.perf_counter() #user timing start
         current_user = user_queue.popleft()
         u_name = current_user['name']
         u_priority = int(current_user[priority_col])
@@ -486,33 +504,49 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
             continue
 
         # Logic assumes geocode_address is defined globally
-        u_lat, u_lon, u_area = onemapApiHelper.geocode_address(current_user['address'], token)
+        address = current_user['address']
+        if address in user_geo_cache:
+            u_lat, u_lon, u_area = user_geo_cache[address]
+        else:
+            u_lat, u_lon, u_area = onemapApiHelper.geocode_address(address, token)
+            user_geo_cache[address] = (u_lat, u_lon, u_area)
+
         u_area = u_area.strip().upper()
 
         # Attempt Phase 1: Own Area
+        user_phase1_start = time.perf_counter()
         print(f"\nTrying to assign {current_user['name']} to {u_area}")
         assigned = try_assign_to_areas([u_area], current_user, u_lat, u_lon)
+        timings[f"{current_user['name']} phase 1 timing"] = time.perf_counter() - user_phase1_start  # timing end
 
         # Attempt Phase 2: Neighboring Areas
         if not assigned:
+            user_phase2_start = time.perf_counter()
             print(f"{current_user['name']} is instead getting assign to a neighbor area near {u_area}.")
             neighbors = area_neighbors.get(u_area, [])
             assigned = try_assign_to_areas(neighbors, current_user, u_lat, u_lon)
+            timings[f"{current_user['name']} phase 2 timing"] = time.perf_counter() - user_phase2_start  # timing end
 
         # Phase 3: Global Search (Only for Level 1 & 2)
         if not assigned and u_priority in [1, 2]:
+            user_phase3_start = time.perf_counter()
             print(f"🌍 Priority {u_priority} Global Search for {current_user['name']}...")
             # Get all areas except the ones we already checked
             already_checked = set([u_area] + area_neighbors.get(u_area, []))
             all_other_areas = [a for a in school_buckets.keys() if a not in already_checked]
             assigned = try_assign_to_areas(all_other_areas, current_user, u_lat, u_lon)
+            timings[f"{current_user['name']} phase 3 timing"] = time.perf_counter() - user_phase3_start  # timing end
 
         if not assigned:
             print(f"{current_user['name']} is not assigned as no school with space is available near {u_area}.")
             current_user['reason'] = f"priority {u_priority}, but unable to find school within 1hr nearby."
             unassigned_users.append(current_user)
 
+        timings[f"{current_user['name']} timing"] = time.perf_counter() - user_start  # timing end
+
+    timings["3. Main Allocation Loop Timing"] = time.perf_counter() - stage4_start #timing end
     # --- 5. DATA PREPARATION FOR EXPORT ---
+    stage5_start = time.perf_counter()
     final_rows = []
     max_cols_found = 0
 
@@ -540,7 +574,10 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
     for i in range(1, num_users_in_header + 1):
         headers.extend([f"User {i}", "Travel Time", "Minutes", "Distance (m)"])
 
+    timings["4. Prepare Export Data Timing"] = time.perf_counter() - stage5_start
+
     # --- 6. CALCULATE SUMMARY STATISTICS ---
+    stage6_start = time.perf_counter()
     filled_schools = sum(1 for s_name, vols in school_assignments.items() if len(vols) >= school_info[s_name]['max'])
     unfilled_schools = len(school_assignments) - filled_schools
 
@@ -564,9 +601,11 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
                   filled_schools, unfilled_schools]
     }
     df_summary = pd.DataFrame(summary_data)
+    timings["5. Calculate Summary Statistics Timing"] = time.perf_counter() - stage6_start
 
     # --- 7. FINAL EXPORT TO THREE SHEETS --- Todo: to change to json export
     # --- 7. FINAL OOP EXPORT TO JSON (NESTED STRUCTURE) ---
+    stage7_start = time.perf_counter()
     try:
         # 1. Prepare Assignments (Build the nested dictionary directly)
         json_assignments = {}
@@ -624,10 +663,42 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         print(f"📊 Summary: {total_assigned} assigned, {total_unassigned} unassigned.")
         print(f"🏫 Schools: {filled_schools} full, {unfilled_schools} with vacancies.")
         print(f"\n✅ Export complete. Data successfully saved to JSON via OOP DataManager.")
-
     except Exception as e:
         print(f"❌ JSON Export failed: {e}")
         #print(f"\n✅ All assignments finalized and saved to: {manager.storage.getfilepath()}")
+    timings["6. JSON File Export"] = time.perf_counter() - stage7_start
+
+    # --- 8. PRINT FINAL TIMING REPORT ---
+    total_time = time.perf_counter() - total_start
+    # Finalize the report structure
+    performance_report = {
+        "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "total_runtime_seconds": round(total_time, 4),
+        "breakdown": {stage: round(duration, 4) for stage, duration in timings.items()},
+        "metadata": {
+            "total_users": len(user_df),
+            "total_schools": len(school_df),
+            "api_hits_estimated": len(api_cache)
+        }
+    }
+
+    try:
+        # Define the report path (e.g., using a timestamp to keep history)
+        report_filename = f"data/performance_logs/report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(report_filename), exist_ok=True)
+
+        # Use your existing OOP Storage system
+        perf_storage = JSONStorage(report_filename)
+        perf_manager = DataManager(perf_storage)
+
+        perf_manager.save_all(performance_report)
+
+        print(f"\n📈 Performance report saved to: {report_filename}")
+
+    except Exception as e:
+        print(f"⚠️ Failed to save performance report: {e}")
 
 
 def exporttoexcel(final_rows, unassigned_users, summary_data, headers, school_assignments, school_info):
@@ -678,7 +749,8 @@ def main():
     start = time.perf_counter()
     process_with_priority(user_file_path, school_file_path, token, ProcessedGeoJSON_FILE)
     end = time.perf_counter()
-    print(f"Time taken: {end - start:.4f} seconds")
+    print(f"Time taken for process to run: {end - start:.4f} seconds")
+
     # import random
     #
     # test = 67

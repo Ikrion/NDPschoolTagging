@@ -2,6 +2,8 @@ import requests
 import time
 import os
 
+# Place this near your imports/configuration
+session = requests.Session()
 # --- CONFIGURATION ---
 EMAIL = "zhanghaien100@gmail.com"
 PASSWORD = "Blk-457-13@haien"
@@ -48,7 +50,7 @@ def geocode_address(address, token):
     search_params = {"searchVal": address, "returnGeom": "Y", "getAddrDetails": "Y", "pageNum": "1"}
 
     try:
-        res = requests.get(search_url, params=search_params, headers=headers).json()
+        res = session.get(search_url, params=search_params, headers=headers).json()
 
         if res.get("found", 0) > 0:
             result = res["results"][0]
