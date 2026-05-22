@@ -1,0 +1,434 @@
+html, body 
+{
+    height: 100%;
+    margin: 0;
+}
+body 
+{
+    font-family: Arial, sans-serif;
+    background: #f4f6f9;
+    display: flex;
+    flex-direction: column;
+}                    
+
+header {
+    display: flex;
+    justify-content: space-between;
+    background: #d0021b;
+    color: white;
+    padding: 20px;
+    padding-left: 40px;
+    text-align: left;
+    font-size: 26px;
+    font-weight: bold;
+}
+
+.g-signin2 {
+    margin-right: 2%;
+    background: #555;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.mainContent {
+    display: grid;
+    grid-template-columns: 20% 80%;
+    flex: 1;
+}
+
+.content_container {
+    display: none;
+    margin: 1% 1% auto auto;
+    width:100%;
+    text-align: center;
+}
+
+.content_container.active {
+    display: block;
+}
+
+h2 {
+    margin-bottom: 10px;
+}
+
+p {
+    color: #555;
+    margin-bottom: 20px;
+}
+
+input[type="file"] {
+    margin: 20px 0;
+}
+
+/* Side Menu Related */
+.side_menu_bar{
+    display: flex;
+    flex-direction: column;
+    border-right: solid black;
+    padding: 5%;
+    height: 100%;
+    width: 80%;
+}
+
+.menu_btn {
+    background: #555;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    margin: 10px 5px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.menu_btn:hover {
+    background: #333;
+}
+
+.menu_btn.active {
+    background: #280707;
+}
+
+/* volunteer list section start*/
+/* --- CRITERIA 1: Top Action Row --- */
+.top_action_row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 98%;
+    margin-bottom: 15px;
+}
+
+.summary_title {
+    margin: 0;
+    color: #333;
+}
+
+/* --- CRITERIA 2: Summary Dashboard --- */
+.summary_dashboard {
+    display: flex;
+    gap: 15px;
+    width: 98%;
+}
+
+.summary_card {
+    background: white;
+    padding: 15px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(117, 117, 117, 0.1);
+    flex: 1;
+    text-align: center;
+}
+
+.summary_card h3 {
+    margin: 0 0 10px 0;
+    font-size: 14px;
+    color: #555;
+    font-weight: normal;
+}
+
+.summary_card p {
+    margin: 0;
+    font-size: 24px;
+    font-weight: bold;
+    color: #d0021b; /* NDP Red */
+}
+
+/* --- CRITERIA 3: Section Divider --- */
+.section_divider {
+    border: 0;
+    border-top: 2px solid #e0e0e0;
+    margin: 25px 0;
+    width: 98%;
+}
+
+/* --- CRITERIA 5: Table Layout & Sizing --- */
+.fixed_table {
+    table-layout: fixed; /* Forces table to obey column widths, ignoring data length */
+    width: 100%;
+    background:white;
+}
+
+/* Default widths (User can adjust via the .resizable div) */
+.col-priority { width: 5%; }
+.col-name { width: 25%; }
+.col-sector { width: 15%; }
+.col-address { width: 55%; }
+
+/* Makes the headers resizable by clicking and dragging the bottom-right corner */
+.resizable-header {
+    position: relative;
+    padding: 8px;
+    user-select: none;
+}
+
+.resize-handle {
+    position: absolute;
+    top: 0;
+    right: 0;
+    width: 6px;
+    height: 100%;
+    cursor: col-resize;
+    background: transparent;
+}
+
+.resize-handle:hover {
+    background: #999;
+}
+
+.fixed_table th {
+    position: sticky;
+    top: 0;
+    background: white;
+    z-index: 2;
+}
+
+/* Default cells text-wrap */
+.fixed_table td {
+    word-wrap: break-word;
+    white-space: normal;
+    padding: 10px;
+    vertical-align: middle;
+}
+
+/* Specific rule for the last column to scroll horizontally instead of wrap */
+.scrollable_content {
+    white-space: nowrap; /* Prevents wrapping */
+    overflow-x: auto;    /* Adds horizontal scrollbar if data is too long */
+    display: block;
+    width: 100%;
+    padding-bottom: 5px; /* Gives room for the scrollbar */
+}
+
+/* Make inner table dropdowns look nice */
+.fixed_table td select {
+    width: 100%;
+    padding: 6px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+}
+
+/* --- CRITERIA 6: Table Footer Row --- */
+.table_footer_row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    width: 98%;
+    margin-top: 15px;
+    background: white;
+    padding: 10px;
+    border-radius: 8px;
+    box-shadow: 0 4px 10px rgba(117, 117, 117, 0.1);
+    box-sizing: border-box; /* Ensures padding doesn't push it wider than the table */
+}
+
+/* Center the pagination perfectly */
+.footer_center {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.footer_left select {
+    padding: 4px;
+    border-radius: 4px;
+}
+/*volunteer list section end*/
+
+/* Mass Assign Section Start */
+/* Container and Titles */
+.mass_assign_view {
+    width: 90%;
+    margin: 0 auto;
+    padding: 20px;
+    text-align: center;
+}
+
+.content_title {
+    font-size: 28px;
+    margin-bottom: 40px;
+}
+
+/* Two Column Layout (Criteria 2 & 3) */
+.summary_columns {
+    display: flex;
+    justify-content: space-between;
+    gap: 40px;
+    margin-bottom: 40px;
+}
+
+.summary_col {
+    flex: 1;
+    background: white;
+    padding: 25px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.05);
+}
+
+.main_stat h3 {
+    font-size: 18px;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.placeholder_num {
+    font-size: 42px;
+    font-weight: bold;
+    color: #d0021b;
+    margin: 10px 0;
+}
+
+/* Priority Grid (4 columns inside the left column) */
+.priority_grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 20px;
+    border-top: 1px solid #eee;
+    padding-top: 20px;
+}
+
+.priority_item h4 {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 5px;
+}
+
+.priority_item p {
+    font-size: 18px;
+    font-weight: bold;
+    margin: 0;
+}
+
+/* Single column for open slots on the right */
+.slots_full_width {
+    margin-top: 20px;
+    border-top: 1px solid #eee;
+    padding-top: 20px;
+}
+
+/* Center Buttons (Criteria 4) */
+.center_action {
+    display: flex;
+    justify-content: center;
+    margin-top: 30px;
+}
+
+.start_btn {
+    padding: 15px 60px;
+    font-size: 20px;
+}
+
+/* Processing State (Criteria 5) */
+.timer_display {
+    font-family: monospace;
+    font-size: 48px;
+    margin-bottom: 30px;
+}
+
+.progress_info {
+    margin: 40px 0;
+}
+
+.progress_bar_container {
+    width: 100%;
+    height: 20px;
+    background: #e0e0e0;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-top: 15px;
+}
+
+.progress_bar_fill {
+    height: 100%;
+    background: #d0021b;
+    transition: width 0.3s ease;
+}
+/* Mass Assign Section End */
+
+#file_function{
+    align-self: center;
+    margin-left: auto;
+    margin-right: 2%;
+}
+
+.file_btn{
+    font-size: 16px;;
+}
+
+.modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.5);
+    z-index: 2;
+    justify-content: center;
+    align-items: center;
+}
+
+.modal_content {
+    background: white;
+    padding: 30px;
+    border-radius: 10px;
+    text-align: center;
+}
+
+.btn {
+    background: #d0021b;
+    color: white;
+    border: none;
+    padding: 12px 20px;
+    margin: 10px 5px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 16px;
+}
+
+.btn:hover {
+    background: #a00115;
+}
+
+.btn-secondary {
+    background: #555;
+}
+
+.btn-secondary:hover {
+    background: #333;
+}
+/* end of summary */
+
+/* table related */
+th, td {
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+    text-align: left;
+}
+
+.table_block {
+    overflow-x: auto;
+    max-height: 60%;
+    overflow-y: auto;
+    border: 1px solid #ccc;
+    margin-right: 2%;
+}
+
+.pagination_buttons {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+/* end of table related */
+
+/* this is for java script */
+.content_section {
+    display: none;
+}
+
+.content_section.active {
+    display: block;
+}

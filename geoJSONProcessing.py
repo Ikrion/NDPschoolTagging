@@ -1,7 +1,8 @@
 import geopandas as gpd
 import json
 import os
-
+import requests
+import time
 
 def download_geojson_with_polling():
     dataset_id = "d_2cc750190544007400b2cfd5d7f53209"
