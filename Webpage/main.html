@@ -11,8 +11,7 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script> <!--SheetJS usage-->
     <link href="https://unpkg.com/tabulator-tables@6.3.0/dist/css/tabulator_bootstrap5.min.css" rel="stylesheet"> <!--Tabulator usage-->
     <!-- Option A: Cloudflare cdnjs (Highly Recommended) -->
-     <script src="https://cdnjs.cloudflare.com/ajax/libs/oidc-client-ts/3.3.0/browser/oidc-client-ts.min.js" integrity="sha512-c2vT43K5Ap/b44ZVGj+uRqqM/RQFtqludEYk8ztxzAPWcPJaKPSGpJRcbo1c2/PdszmNUvPqOzWERCKqT+P1Xg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script src="script.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/oidc-client-ts/3.3.0/browser/oidc-client-ts.min.js" integrity="sha512-c2vT43K5Ap/b44ZVGj+uRqqM/RQFtqludEYk8ztxzAPWcPJaKPSGpJRcbo1c2/PdszmNUvPqOzWERCKqT+P1Xg==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <!--<script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js" defer></script> Tabulator usage-->
     <title>NDP School Tagging</title>
     
@@ -20,7 +19,7 @@
 <body>
     <header>
         NDP School Tagging
-        <button id="signIn">Sign In</button>
+        <button class="btn btn-secondary" id="signIn">Sign In</button>
     </header>
 
     <div>
@@ -34,9 +33,10 @@
         <div class="side_menu_bar">
             <button class="menu_btn" id="1" onclick="showSection('VolunteerList')">Volunteer list</button>
             <button class="menu_btn" id="2" onclick="showSection('SchoolList')">School list</button>
-            <button class="menu_btn" id="3" onclick="showSection('MassAssign')">Mass Assign</button>
-            <button class="menu_btn" id="4" onclick="showSection('IndividualAssign')">Individual Assign</button>
-            <button class="menu_btn" id="5" onclick="showSection('Logs')">Logs</button>
+            <button class="menu_btn" id="3" onclick="showSection('AllocationList')">Allocation list</button>
+            <button class="menu_btn" id="4" onclick="showSection('MassAssign')">Mass Assign</button>
+            <button class="menu_btn" id="5" onclick="showSection('IndividualAssign')">Individual Assign</button>
+            <button class="menu_btn" id="6" onclick="showSection('Logs')">Logs</button>
         </div>
         <div id="uploadModal" class="modal">
             <div class="modal_content">
@@ -57,7 +57,6 @@
             <div class="top_action_row">
                 <h2 class="summary_title">Volunteer Summary</h2>
                 <div class="action_buttons">
-                    <input type="file" id="tableFileInput" accept=".xlsx,.xls" />
                     <button class="btn btn-secondary" onclick="openModal()">Import File</button>
                     <button class="btn btn-secondary">Export File</button>
                 </div>
@@ -89,73 +88,11 @@
             <hr class="section_divider">
 
             <div class="table_block">
-                <!--<table id="dataTable" class="fixed_table">
-                    <thead>
-                        <tr>
-                            <th class="col-priority">
-                                <div class="resizable-header">
-                                    Priority
-                                    <span class="resize-handle"></span>
-                                </div>
-                            </th>
-                            <th class="col-name">
-                                <div class="resizable-header">
-                                    Name
-                                    <span class="resize-handle"></span>
-                                </div>
-                            </th>
-                            <th class="col-sector">
-                                <div class="resizable-header">
-                                    Sector
-                                    <span class="resize-handle"></span>
-                                </div>
-                            </th>
-                            <th class="col-address">
-                                <div class="resizable-header">
-                                    Address
-                                    <span class="resize-handle"></span>
-                                </div>
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <tr>
-                            <td>
-                                <select>
-                                    <option value="1">1</option>
-                                    <option value="2">2</option>
-                                    <option value="3" selected>3</option>
-                                    <option value="4">4</option>
-                                </select>
-                            </td>
-                            <td>John Doe</td>
-                            <td>Blue</td>
-                            <td>
-                                <div class="scrollable_content">
-                                    Blk 123 Super Long Address Avenue 4, #12-345, Very Long Street Name, Singapore 123456
-                                </div>
-                            </td>
-                        </tr>
-                        <tr>
-                            <td>
-                                <select><option selected>1</option></select>
-                            </td>
-                            <td>Jane Smith</td>
-                            <td>OC</td>
-                            <td>
-                                <div class="scrollable_content">
-                                    Blk 456 Short Ave
-                                </div>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table> -->
-
                 <div id="dataTable"></div>
             </div>
 
             <div class="footer_right">
-                    <button class="btn">Save Changes</button>
+                    <button class="btn" onclick="test()">Save Changes</button>
             </div>
 
         </div>
@@ -164,7 +101,6 @@
             <div class="top_action_row">
                 <h2 class="summary_title">School Summary</h2>
                 <div class="action_buttons">
-                    <input type="file" id="tableSchoolFileInput" accept=".xlsx,.xls" />
                     <button class="btn btn-secondary" onclick="openModal()">Import File</button>
                     <button class="btn btn-secondary">Export File</button>
                 </div>
@@ -189,6 +125,41 @@
 
             <div class="table_block">
                 <div id="dataTableSchool"></div>
+            </div>
+
+            <div class="footer_right">
+                    <button class="btn">Save Changes</button>
+            </div>
+
+        </div>
+        <div class="content_container" id="AllocationList">
+            <div class="top_action_row">
+                <h2 class="summary_title">Allocation Summary</h2>
+                <div class="action_buttons">
+                    <button class="btn btn-secondary" onclick="openModal()">Import File</button>
+                    <button class="btn btn-secondary">Export File</button>
+                </div>
+            </div>
+
+            <div class="summary_dashboard">
+                <div class="summary_card">
+                    <h3>Total School</h3>
+                    <p id="sumTotalSchool">0</p>
+                </div>
+                <div class="summary_card">
+                    <h3>School Filled</h3>
+                    <p id="sumS1">0</p>
+                </div>
+                <div class="summary_card">
+                    <h3>School With Slots</h3>
+                    <p id="sumS2">0</p>
+                </div>
+            </div>
+
+            <hr class="section_divider">
+
+            <div class="table_block">
+                <div id="dataTableAllocation"></div>
             </div>
 
             <div class="footer_right">
@@ -227,11 +198,11 @@
                 </div>
 
                 <div class="center_action">
-                    <button class="btn start_btn">Start</button>
+                    <button class="btn start_btn" onclick="startDataProcessing()">Start</button>
                 </div>
             </div>
 
-            <div id="processingState" class="mass_assign_view" style="display: none;">
+            <div class="mass_assign_view" id="processingState" style="display: none;">
                 <div class="timer_display">00:00:00</div>
                 
                 <div class="progress_info">
@@ -254,13 +225,13 @@
                     <div class="summary_col">
                         <div class="main_stat">
                             <h3>Total Num of volunteers</h3>
-                            <p class="placeholder_num">133</p>
+                            <p class="placeholder_num" id="finshedTotal">133</p>
                         </div>
                         <div class="priority_grid">
-                            <div class="priority_item"><h4>Priority 1</h4><p>45</p></div>
-                            <div class="priority_item"><h4>Priority 2</h4><p>30</p></div>
-                            <div class="priority_item"><h4>Priority 3</h4><p>20</p></div>
-                            <div class="priority_item"><h4>Priority 4</h4><p>38</p></div>
+                            <div class="priority_item"><h4>Priority 1</h4><p id="finshedP1">45</p></div>
+                            <div class="priority_item"><h4>Priority 2</h4><p id="finshedP2">30</p></div>
+                            <div class="priority_item"><h4>Priority 3</h4><p id="finshedP3">20</p></div>
+                            <div class="priority_item"><h4>Priority 4</h4><p id="finshedP4">38</p></div>
                         </div>
                     </div>
                     <div class="summary_col">
@@ -288,22 +259,7 @@
         </div>
     </div>
     <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
+    <script src="webInteractive.js" defer></script>
+    <script src="script.js" defer></script>
 </body>
-
 </html>
-
-<!--I'm working on another html section, i want you to focus only on Html no javascript. These are the criterial.
-
-
-
-1) A Text "Summary" in the center top acting as the content title.
-
-2) split into 2 column, on the left is "Total Num of volunteers" with a placeholder num below, and below the num is 4 more col for 4 different priority, as "Priority 1", "Priority 2", "Priority 3", "Priority 4".
-
-3) continue from the 2nd criterial, on the right is "Total Num of schools" with a placeholder num below, and below the number is only 1 col for "Num of open slots" with a placeholder num below.
-
-4) Then there will also be a start button in the center, this will temp be a placeholder.
-
-5) When start button is pressed, everything will disappear and a new div will take over, with a Timer in the top center, a placeholder text for "Current volunter number/ Total volunteer number", Progress bar, and a cancel button at the bottom last.
-
-6) When the progress bar is finish. Everything will disappear and a summary page will appear similar to the first Div but with the button change to "Done".-->

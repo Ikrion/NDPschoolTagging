@@ -41,14 +41,16 @@ header {
 }
 
 .content_container {
-    display: none;
+    visibility: hidden;
+    position: absolute;
     margin: 1% 1% auto auto;
     width:100%;
     text-align: center;
 }
 
 .content_container.active {
-    display: block;
+    visibility: visible;
+    position: static;
 }
 
 h2 {
