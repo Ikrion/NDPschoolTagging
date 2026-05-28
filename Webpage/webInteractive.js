@@ -97,85 +97,128 @@ function initTables() {
         ]
     });
 
+    const expandedRows = new WeakSet();
+
     // 3. Processed Allocation Table Configuration
     allocationTable = new Tabulator("#dataTableAllocation", {
         data: [],
         placeholder: "No Processed Data Yet",
         layout: "fitColumns",
+        responsiveLayout: "hide",
         maxHeight: "550px",
-        renderVertical: "basic",
         pagination: true,
         paginationMode: "local",
         paginationSize: 10,
         paginationSizeSelector: [10, 25, 50],
+        selectableRows: 1,
         columns: [
-            // Adjust these fields based on what your backend actually returns
-            { title: "Assigned School", field: "assigned_school", headerFilter: "input" },
-            { title: "Max Volunteers", field: "Max Volunteers" },
-            { title: "Volunteer Name", field: "name", headerFilter: "input" },
-            { title: "Status", field: "status" }
-        ]
+        { title: "School", field: "school", widthGrow: 2, minWidth: "120", headerFilter: "input"},
+        { title: "Area", field: "area", widthGrow: 2, headerFilter: "input"},
+        { title: "Max Volunteers", field: "maxVolunteers", widthGrow: 1, headerFilter: "input", maxWidth: 180 },
+        ],
+        rowFormatter: function(row) {
+
+            const rowElement = row.getElement();
+
+            rowElement.style.cursor = "pointer";
+
+            rowElement.addEventListener("click", function(e) {
+                // Ignore clicks inside volunteer table
+                if (e.target.closest(".subtable-holder")) {
+                    return;
+                }
+
+                let holder = rowElement.querySelector(".subtable-holder");
+
+                // Collapse
+                if (expandedRows.has(row)) {
+                    if (holder) {
+                        holder.remove();
+                    }
+                    expandedRows.delete(row);
+                    return;
+                }
+
+                // Expand
+                holder = document.createElement("div");
+
+                holder.classList.add("subtable-holder");
+
+                holder.style.padding = "10px";
+                holder.style.background = "#f5f5f5";
+                holder.style.borderTop = "1px solid #ddd";
+
+                rowElement.appendChild(holder);
+
+                new Tabulator(holder, {
+
+                    data: row.getData().volunteers || [],
+
+                    layout: "fitColumns",
+
+                    selectableRows: 1,
+
+                    columns: [
+                        { title: "Name", field: "name" },
+                        { title: "Travel Time", field: "travelTime" },
+                        { title: "Distance (meters)", field: "distance" }
+                    ],
+
+                    rowClick: function(e, volunteerRow) {
+                        e.stopPropagation();
+                        volunteerRow.select();
+                        console.log(
+                            "Volunteer selected:",
+                            volunteerRow.getData()
+                        );
+                    }
+                });
+
+                expandedRows.add(row);
+            });
+        }
     });
 
     window.loadAllocationDataToUI = function(schoolAssignments, parsedSchoolData) {
         if (allocationTable) {
-            //totalvolunteersprocessed = schoolAssignments["summary_statistics"]["Total Assigned"] + schoolAssignments["summary_statistics"]["Total Unassigned"]
-            //document.getElementById("finshedTotal").innerText = totalvolunteersprocessed;
-
-            // // Run data transformer
-            // const tableConfig = formatDynamicTableData(schoolAssignments, parsedSchoolData);
-
-            // // Completely destroy old instance to prevent column definition overlap errors
-            // if (window.allocationTable) {
-            //     window.allocationTable.destroy();
-            // }
-
-            // // Render the dynamic structural layout inside Tabulator
-            // window.allocationTable = new Tabulator("#dataTableAllocation", {
-            //     data: tableConfig.data,           // Array of Objects
-            //     columns: tableConfig.columns,     // Dynamic Header Array
-            //     layout: "fitDataStandard",        // Automatically sizes wide columns neatly
-            //     maxHeight: "550px",
-            //     renderVertical: "basic",
-            //     pagination: true,
-            //     paginationMode: "local",
-            //     paginationSize: 10,
-            //     paginationSizeSelector: [10, 25, 50],
-            // });
-            
-            // Automatically switch to the results tab so the user sees it
-            //
-
             // 1. Debug line: check exactly what your AWS Python engine returned
             console.log("Raw backend data received:", schoolAssignments);
 
             let tableRows = [];
 
-            // 2. Convert the nested dictionary/object into a flat array of row objects
-            if (Array.isArray(schoolAssignments)) {
-                // If it's already an array, use it directly
-                tableRows = schoolAssignments;
-            } else if (schoolAssignments && typeof schoolAssignments === 'object') {
-                
-                // Check if the array is hidden inside a property (e.g., schoolAssignments.allocations)
-                if (Array.isArray(schoolAssignments.allocations)) {
-                    tableRows = schoolAssignments.allocations;
-                } else {
-                    // It is a key-value dictionary (e.g., { "job_id_1": {...}, "job_id_2": {...} })
-                    tableRows = Object.entries(schoolAssignments).map(([key, value]) => {
-                        if (typeof value === 'object' && value !== null) {
-                            return { id: key, ...value }; // Flattens the keys into rows
-                        }
-                        return { id: key, value: value };
-                    });
-                }
+            if (schoolAssignments?.assignments) {
+
+                tableRows = Object.entries(schoolAssignments.assignments).map(
+                    ([schoolName, schoolData]) => {
+
+                        const volunteers = Object.entries(schoolData)
+                            .filter(([key]) => key.startsWith("User"))
+                            .map(([_, user]) => ({
+                                name: user?.Name || "",
+                                travelTime: user?.["Travel Time"] || "",
+                                minutes: user?.["Total Minutes"] || 0,
+                                distance: user?.["Distance (meters)"] || 0
+                            }));
+
+                        return {
+                            school: schoolName,
+                            area: schoolData.Area || "",
+                            maxVolunteers: schoolData["Max Volunteers"] || 0,
+                            volunteers: volunteers
+                        };
+                    }
+                );
+            }
+
+            if (schoolAssignments?.summary_statistics) {
+                document.getElementById("sumSchoolFilled").innerText = `${schoolAssignments.summary_statistics["Schools Filled"]} / ${schoolAssignments.summary_statistics["Total School"]}`;
+                document.getElementById("sumTotalAssign").innerText = schoolAssignments.summary_statistics["Total Assigned"];
+                document.getElementById("sumTotalUnassign").innerText = schoolAssignments.summary_statistics["Total Unassigned"];
             }
 
             // 3. Pass the newly formatted flat array to Tabulator
             // Replace 'yourTabulatorInstance' with the actual variable name of your table (e.g., table, allocationTable)
             allocationTable.setData(tableRows);
-
-            showSection("AllocationList"); 
         }
     };
 
@@ -206,12 +249,12 @@ function initTables() {
 }
 
 // 1. Toggles the Processing Screen and Timer
-function toggleProcessingUI(isVisible) {
+function toggleProcessingUI(State, data) {
     const processingDiv = document.getElementById("processingState");
     const mainContent = document.getElementById("setupState");
     const finshDiv = document.getElementById("finishedState");
 
-    if (isVisible) {
+    if (State = "processing") { //start processing
         // Show progress view, hide main view
         if (processingDiv) processingDiv.style.display = "block";
         if (mainContent) mainContent.style.display = "none";
@@ -223,11 +266,30 @@ function toggleProcessingUI(isVisible) {
         
         // Reset Progress Bar
         updateProgressUI(0, 0); 
-    } else {
-        // Hide progress view, show main view
+    } else if (State = "finished") { //finished processing
+        // Hide progress view, show finished view
         if (processingDiv) processingDiv.style.display = "none";
         if (finshDiv) finshDiv.style.display = "block";
+
+        //update UI
+        if (data?.summary_statistics) {
+            document.getElementById("finshedTotal").innerText = data.summary_statistics["Total Assigned"];
+            document.getElementById("finshedLeft1").innerText = data.summary_statistics["Priority 1 left"];
+            document.getElementById("finshedLeft2").innerText = data.summary_statistics["Priority 2 left"];
+            document.getElementById("finshedLeft3").innerText = data.summary_statistics["Priority 3 left"];
+            document.getElementById("finshedLeft4").innerText = data.summary_statistics["Priority 4 left"];
+            document.getElementById("finishedTotalSchool").innerText = `${data.summary_statistics["Schools Filled"]} / ${data.summary_statistics["Total School"]}`;
+            document.getElementById("finishedSlotLeft").innerText = data.summary_statistics["Total slot left"];
+        }
         
+        // Stop Timer
+        clearInterval(timerInterval);
+    }
+    else { //error
+        // Hide progress view, show finished view
+        if (processingDiv) processingDiv.style.display = "none";
+        if (mainContent) finshDiv.style.display = "block";
+
         // Stop Timer
         clearInterval(timerInterval);
     }

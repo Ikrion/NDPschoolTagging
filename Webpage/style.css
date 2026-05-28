@@ -95,8 +95,7 @@ input[type="file"] {
     background: #280707;
 }
 
-/* volunteer list section start*/
-/* --- CRITERIA 1: Top Action Row --- */
+
 .top_action_row {
     display: flex;
     justify-content: space-between;
@@ -110,7 +109,7 @@ input[type="file"] {
     color: #333;
 }
 
-/* --- CRITERIA 2: Summary Dashboard --- */
+
 .summary_dashboard {
     display: flex;
     gap: 15px;
@@ -140,7 +139,7 @@ input[type="file"] {
     color: #d0021b; /* NDP Red */
 }
 
-/* --- CRITERIA 3: Section Divider --- */
+
 .section_divider {
     border: 0;
     border-top: 2px solid #e0e0e0;
@@ -148,98 +147,15 @@ input[type="file"] {
     width: 98%;
 }
 
-/* --- CRITERIA 5: Table Layout & Sizing --- */
-.fixed_table {
-    table-layout: fixed; /* Forces table to obey column widths, ignoring data length */
-    width: 100%;
-    background:white;
+
+.tabulator {
+    width: 100% !important;
 }
 
-/* Default widths (User can adjust via the .resizable div) */
-.col-priority { width: 5%; }
-.col-name { width: 25%; }
-.col-sector { width: 15%; }
-.col-address { width: 55%; }
-
-/* Makes the headers resizable by clicking and dragging the bottom-right corner */
-.resizable-header {
-    position: relative;
-    padding: 8px;
-    user-select: none;
+.tabulator-tableholder {
+    overflow-x: hidden !important;
 }
 
-.resize-handle {
-    position: absolute;
-    top: 0;
-    right: 0;
-    width: 6px;
-    height: 100%;
-    cursor: col-resize;
-    background: transparent;
-}
-
-.resize-handle:hover {
-    background: #999;
-}
-
-.fixed_table th {
-    position: sticky;
-    top: 0;
-    background: white;
-    z-index: 2;
-}
-
-/* Default cells text-wrap */
-.fixed_table td {
-    word-wrap: break-word;
-    white-space: normal;
-    padding: 10px;
-    vertical-align: middle;
-}
-
-/* Specific rule for the last column to scroll horizontally instead of wrap */
-.scrollable_content {
-    white-space: nowrap; /* Prevents wrapping */
-    overflow-x: auto;    /* Adds horizontal scrollbar if data is too long */
-    display: block;
-    width: 100%;
-    padding-bottom: 5px; /* Gives room for the scrollbar */
-}
-
-/* Make inner table dropdowns look nice */
-.fixed_table td select {
-    width: 100%;
-    padding: 6px;
-    border-radius: 4px;
-    border: 1px solid #ccc;
-}
-
-/* --- CRITERIA 6: Table Footer Row --- */
-.table_footer_row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 98%;
-    margin-top: 15px;
-    background: white;
-    padding: 10px;
-    border-radius: 8px;
-    box-shadow: 0 4px 10px rgba(117, 117, 117, 0.1);
-    box-sizing: border-box; /* Ensures padding doesn't push it wider than the table */
-}
-
-/* Center the pagination perfectly */
-.footer_center {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.footer_left select {
-    padding: 4px;
-    border-radius: 4px;
-}
-/*volunteer list section end*/
 
 /* Mass Assign Section Start */
 /* Container and Titles */

@@ -26,8 +26,8 @@ let rowsPerPage = 50;
 const oidcConfig = {
   authority: "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_RlJKEaPKc", 
   client_id: "3riavog3fklq7b6so99rs4vag6",
-  redirect_uri: "http://localhost/",
-  post_logout_redirect_uri: "http://localhost/",
+  redirect_uri: "https://ikrion.github.io/NDPschoolTagging/",  //change if uploading to github
+  post_logout_redirect_uri: "https://ikrion.github.io/NDPschoolTagging/",  //change if uploading to github
   response_type: "code", 
   scope: "phone openid email",
   userStore: new oidc.WebStorageStateStore({ store: window.localStorage }),
@@ -168,6 +168,7 @@ async function processUploadedFile(file) {
         }
     };
 
+    closeModal();
     reader.readAsArrayBuffer(file);
 }
 
@@ -316,14 +317,17 @@ async function initAuth() {
 
     const CACHE_KEY1 = "my_volunteer_data";
     const CACHE_KEY2 = "my_school_data";
+    const CACHE_KEY3 = "my_allocation_data";
 
     // 1. Try to get valid cached data
     parsedData = getCache(CACHE_KEY1);
     parsedSchoolData = getCache(CACHE_KEY2);
+    allocationData = getCache(CACHE_KEY3);
 
     console.info("Loading data from cache!");
     loadVolunteerDataToUI(parsedData);
     loadSchoolDataToUI(parsedSchoolData);
+    loadAllocationDataToUI(allocationData);
 }
 
 // ==========================================
@@ -332,7 +336,7 @@ async function initAuth() {
 async function startDataProcessing() {
     try {
         // 1. Switch the UI to the processing screen
-        toggleProcessingUI(true);
+        toggleProcessingUI("processing");
 
         // Endpoints configured from your previous architecture
         const apiGatewayEndpoint = "https://yk056aw14b.execute-api.ap-southeast-1.amazonaws.com/default/NDP_SchoolTagging";
@@ -418,14 +422,14 @@ async function startDataProcessing() {
                         }
                     
                         if (typeof toggleProcessingUI === "function") {
-                            toggleProcessingUI(false);
+                            toggleProcessingUI("finished", schoolAssignments);
                         }
                         alert("Processing Complete!");
                     } else if (progressData.status && progressData.status.startsWith("failed")) {
                         // Instantly break out of loop if Python hit the except block and flagged a failure
                         clearInterval(pollInterval);
                         if (typeof toggleProcessingUI === "function") {
-                            toggleProcessingUI(false);
+                            toggleProcessingUI("fail");
                         }
                         alert(`Backend Processing Failed: ${progressData.status}`);
                     }

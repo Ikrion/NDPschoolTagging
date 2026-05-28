@@ -143,16 +143,16 @@
 
             <div class="summary_dashboard">
                 <div class="summary_card">
-                    <h3>Total School</h3>
-                    <p id="sumTotalSchool">0</p>
-                </div>
-                <div class="summary_card">
                     <h3>School Filled</h3>
-                    <p id="sumS1">0</p>
+                    <p id="sumSchoolFilled">0</p>
                 </div>
                 <div class="summary_card">
-                    <h3>School With Slots</h3>
-                    <p id="sumS2">0</p>
+                    <h3>Volunteers Assigned</h3>
+                    <p id="sumTotalAssign">0</p>
+                </div>
+                <div class="summary_card">
+                    <h3>Volunteers Unassigned</h3>
+                    <p id="sumTotalUnassign">0</p>
                 </div>
             </div>
 
@@ -224,30 +224,30 @@
                 <div class="summary_columns">
                     <div class="summary_col">
                         <div class="main_stat">
-                            <h3>Total Num of volunteers</h3>
+                            <h3>Total Num of volunteers allocated</h3>
                             <p class="placeholder_num" id="finshedTotal">133</p>
                         </div>
                         <div class="priority_grid">
-                            <div class="priority_item"><h4>Priority 1</h4><p id="finshedP1">45</p></div>
-                            <div class="priority_item"><h4>Priority 2</h4><p id="finshedP2">30</p></div>
-                            <div class="priority_item"><h4>Priority 3</h4><p id="finshedP3">20</p></div>
-                            <div class="priority_item"><h4>Priority 4</h4><p id="finshedP4">38</p></div>
+                            <div class="priority_item"><h4>Priority 1 left</h4><p id="finshedLeft1">45</p></div>
+                            <div class="priority_item"><h4>Priority 2 left</h4><p id="finshedLeft2">30</p></div>
+                            <div class="priority_item"><h4>Priority 3 left</h4><p id="finshedLeft3">20</p></div>
+                            <div class="priority_item"><h4>Priority 4 left</h4><p id="finshedLeft4">38</p></div>
                         </div>
                     </div>
                     <div class="summary_col">
                         <div class="main_stat">
-                            <h3>Total Num of schools</h3>
-                            <p class="placeholder_num">30</p>
+                            <h3>Total Num of Schools Filled</h3>
+                            <p class="placeholder_num" id="finishedTotalSchool">30</p>
                         </div>
                         <div class="slots_full_width">
-                            <h4>Num of open slots</h4>
-                            <p class="placeholder_num">150</p>
+                            <h4>Num of open slots left</h4>
+                            <p class="placeholder_num" id="finishedSlotLeft">150</p>
                         </div>
                     </div>
                 </div>
 
                 <div class="center_action">
-                    <button class="btn">Done</button>
+                    <button class="btn" onclick="showSection('AllocationList')">Done</button>
                 </div>
             </div>
         </div>
