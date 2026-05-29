@@ -298,6 +298,7 @@ async function handleSignOut() {
         await userManager.signoutRedirect({
             extraQueryParams: { client_id: oidcConfig.client_id, logout_uri: oidcConfig.post_logout_redirect_uri }
         });
+        alert("Sign out successful!")
     } catch (err) { console.error(err); }
 }
 
@@ -478,7 +479,7 @@ async function startDataProcessing() {
             const resultData = await response.json();
             let parsedResponse = typeof resultData === "string" ? JSON.parse(resultData) : resultData;
             
-            toggleProcessingUI(false);
+            toggleProcessingUI("finished");
             
             // Extract the rows object from AWS payload
             let schoolAssignments = parsedResponse.processed_json || parsedResponse;
@@ -487,7 +488,7 @@ async function startDataProcessing() {
             storeCache(CACHE_KEY, schoolAssignments);
             
             if (typeof schoolAssignments === "string") {
-                schoolAssignments = JSON.parse(schoolAssignments);
+                allocationData = JSON.parse(schoolAssignments);
             }
 
             // ==========================================
@@ -498,7 +499,7 @@ async function startDataProcessing() {
                 
                 if (window.loadAllocationDataToUI) {
                     // Assuming 'parsedSchoolData' is accessible globally or stored in your state
-                    window.loadAllocationDataToUI(schoolAssignments, parsedSchoolData);
+                    window.loadAllocationDataToUI(allocationData, parsedSchoolData);
                 }
             }
         }
