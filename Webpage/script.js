@@ -479,8 +479,6 @@ async function startDataProcessing() {
             const resultData = await response.json();
             let parsedResponse = typeof resultData === "string" ? JSON.parse(resultData) : resultData;
             
-            toggleProcessingUI("finished");
-            
             // Extract the rows object from AWS payload
             let schoolAssignments = parsedResponse.processed_json || parsedResponse;
 
@@ -496,7 +494,7 @@ async function startDataProcessing() {
             // ==========================================
             if (allocationData) {
                 console.log("Processing complete! Updating Allocation Table...");
-                
+                toggleProcessingUI("finished", allocationData);
                 if (window.loadAllocationDataToUI) {
                     // Assuming 'parsedSchoolData' is accessible globally or stored in your state
                     window.loadAllocationDataToUI(allocationData, parsedSchoolData);
@@ -505,7 +503,7 @@ async function startDataProcessing() {
         }
     } catch (err) {
         console.error("Processing Error:", err);
-        toggleProcessingUI(false);
+        toggleProcessingUI("fail");
         alert("An error occurred during data processing: " + err.message);
     } finally {
         // Stop the loading spinner
