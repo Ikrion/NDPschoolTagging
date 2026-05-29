@@ -143,7 +143,7 @@ async function processUploadedFile(file) {
             loadVolunteerDataToUI(parsedData); 
             //updateSummary();
             if (user && user.id_token) {
-                uploadToLambda(parsedData);
+                uploadToLambda(parsedData, "users.json");
             }
             else { //Guest save to cache
                 const CACHE_KEY = "my_volunteer_data";
@@ -158,7 +158,7 @@ async function processUploadedFile(file) {
             loadSchoolDataToUI(parsedSchoolData); 
             //updateSchoolSummary();
             if (user && user.id_token) {
-                uploadToLambda(parsedSchoolData);
+                uploadToLambda(parsedSchoolData, "schools.json");
             }
             else { //Guest save to cache
                 const CACHE_KEY = "my_school_data";
@@ -166,6 +166,7 @@ async function processUploadedFile(file) {
                 console.info("Saving school data to cache!");
             }
         }
+        
     };
 
     closeModal();
@@ -246,7 +247,7 @@ async function downloadDriveFile(fileId, fileName) {
 // =========================
 // AWS LAMBDA / FILE UPLOAD
 // =========================
-async function uploadToLambda(file) {
+async function uploadToLambda(data, filename) {
     try {
         const apiGatewayEndpoint = "https://yk056aw14b.execute-api.ap-southeast-1.amazonaws.com/default/NDP_SchoolTagging";
         const lambdaFunctionURL = "https://mmhsmpwet5fnxxszmelfguxxjy0aigsz.lambda-url.ap-southeast-1.on.aws/";
@@ -259,21 +260,25 @@ async function uploadToLambda(file) {
 
             const urlRequest = await fetch(apiGatewayEndpoint, {
                 method: "POST",
-                headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json" },
-                body: JSON.stringify({ action: "upload", user_id: userId, filename: file.name, fileType: file.type || "application/octet-stream" })
+                headers: { "Authorization": `Bearer ${idToken}`},
+                body: JSON.stringify({ action: "upload", user_id: userId, filename: filename || "application/octet-stream" })
             });
 
             if (!urlRequest.ok) throw new Error("Backend rejected URL request");
             const urlData = await urlRequest.json();
-            const presignedS3Url = urlData.uploadUrl || urlData.download_url; 
+            
+            const presignedS3Url = urlData.uploadUrl; 
+            console.log("this is my presigned url: ", presignedS3Url);
+            // ✅ convert JS object → JSON file
+            const payload = JSON.stringify(data);
 
+            console.log("this is my data file: ", payload);
             const s3UploadResponse = await fetch(presignedS3Url, {
                 method: "PUT", 
-                headers: { "Content-Type": file.type || "application/octet-stream" },
-                body: file 
+                body: payload 
             });
 
-            if (s3UploadResponse.ok) alert(`🎉 ${file.name} successfully uploaded!`);
+            if (s3UploadResponse.ok) alert(`🎉 ${filename} successfully uploaded!`);
             
         }
     } catch (err) {
@@ -325,9 +330,10 @@ async function initAuth() {
     allocationData = getCache(CACHE_KEY3);
 
     console.info("Loading data from cache!");
-    loadVolunteerDataToUI(parsedData);
-    loadSchoolDataToUI(parsedSchoolData);
-    loadAllocationDataToUI(allocationData);
+    if (parsedData) loadVolunteerDataToUI(parsedData);
+    if (parsedSchoolData) loadSchoolDataToUI(parsedSchoolData);
+    if (allocationData) loadAllocationDataToUI(allocationData);
+    
 }
 
 // ==========================================

@@ -479,17 +479,21 @@ function showSection(id, event) {
 function openModal() { document.getElementById("uploadModal").style.display = "flex"; }
 function closeModal() { document.getElementById("uploadModal").style.display = "none"; }
 function selectLocal() { document.getElementById("fileInput").click(); }
+function showAlert(message)
+{
+    alert(message);
+}
 
 // --- AUTHENTICATION UI ---
 function updateAuthUI(user, handleSignIn, handleSignOut) {
     const button = document.getElementById("signIn") || document.getElementById("signOut");
-    const safeSetText = (id, text) => { if (document.getElementById(id)) document.getElementById(id).textContent = text; };
+    //const safeSetText = (id, text) => { if (document.getElementById(id)) document.getElementById(id).textContent = text; };
 
     if (user) {
-        safeSetText("email", user.profile?.email || "");
-        safeSetText("access-token", user.access_token || "");
-        safeSetText("id-token", user.id_token || "");
-        safeSetText("refresh-token", user.refresh_token || "");
+        //safeSetText("email", user.profile?.email || "");
+        //safeSetText("access-token", user.access_token || "");
+        //safeSetText("id-token", user.id_token || "");
+        //safeSetText("refresh-token", user.refresh_token || "");
          
         if (button) {
             button.textContent = "Log out";
@@ -498,10 +502,10 @@ function updateAuthUI(user, handleSignIn, handleSignOut) {
             button.addEventListener("click", handleSignOut);
         }
     } else {
-        safeSetText("email", "");
-        safeSetText("access-token", "");
-        safeSetText("id-token", "");
-        safeSetText("refresh-token", "");
+        //safeSetText("email", "");
+        //safeSetText("access-token", "");
+        //safeSetText("id-token", "");
+        //safeSetText("refresh-token", "");
             
         if (button) {
             button.textContent = "Sign In";
@@ -514,5 +518,6 @@ function updateAuthUI(user, handleSignIn, handleSignOut) {
 
 function test()
 {
-    console.log(volunteerTable.getPageSize());
+    //console.log(volunteerTable.getPageSize());
+    alert("Currently Not working")
 }

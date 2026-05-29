@@ -23,17 +23,6 @@ header {
     font-weight: bold;
 }
 
-.g-signin2 {
-    margin-right: 2%;
-    background: #555;
-    color: white;
-    border: none;
-    padding: 12px 20px;
-    border-radius: 6px;
-    cursor: pointer;
-    font-size: 16px;
-}
-
 .mainContent {
     display: grid;
     grid-template-columns: 20% 80%;
@@ -321,11 +310,6 @@ input[type="file"] {
 /* end of summary */
 
 /* table related */
-th, td {
-    padding: 10px;
-    border-bottom: 1px solid #ddd;
-    text-align: left;
-}
 
 .table_block {
     overflow-x: auto;
@@ -335,11 +319,6 @@ th, td {
     margin-right: 2%;
 }
 
-.pagination_buttons {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
 /* end of table related */
 
 /* this is for java script */
