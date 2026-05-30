@@ -270,7 +270,10 @@ async function uploadToLambda(data, filename) {
             const presignedS3Url = urlData.uploadUrl; 
             console.log("this is my presigned url: ", presignedS3Url);
             // ✅ convert JS object → JSON file
-            const payload = JSON.stringify(data);
+            const payload = new Blob(
+                [JSON.stringify(data)],
+                { type: "application/json" }
+            );
 
             console.log("this is my data file: ", payload);
             const s3UploadResponse = await fetch(presignedS3Url, {
