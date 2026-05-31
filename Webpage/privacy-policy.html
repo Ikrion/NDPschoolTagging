@@ -118,7 +118,7 @@ and fulfill the purposes described in this Privacy Policy.
 <p>
 Any Google Account information and Google Sheets data that is processed or stored in AWS S3 will be retained 
 no later than <strong>September 30, 2026</strong>. 
-After this date, all stored data in AWS S3 and any related systems will be permanently deleted unless required by law.
+After this date, all stored data in AWS S3 and any related systems will be permanently deleted unless required to comply with applicable law.
 </p>
 
 
@@ -145,6 +145,10 @@ Our application's use and transfer of information received from Google APIs will
 the Google API Services User Data Policy, including the Limited Use requirements.
 </p>
 
+<p>
+We do not use Google user data for advertising purposes and do not transfer it to third parties except as required to provide the application functionality.
+</p>
+
 <h2>Third-Party Services</h2>
 
 <p>
@@ -156,30 +160,42 @@ Google services are used for authentication and accessing authorized Google Shee
 </p>
 
 <p>
-AWS (Amazon Web Services) is used to process, transform, and store application data required for system functionality.
+AWS is used for backend processing (AWS Lambda), user authentication (AWS Cognito), and data storage (Amazon S3 and DynamoDB).
 </p>
 
 <p>
-Your use of Google services is also subject to Google's privacy policies and terms. AWS services are subject to Amazon Web Services' applicable terms and privacy policies.
+AWS services used include:
+</p>
+
+<ul>
+    <li>AWS Cognito for user authentication and identity management (including Google sign-in integration)</li>
+    <li>AWS Lambda for backend processing and data transformation</li>
+    <li>Amazon S3 for storing processed application data</li>
+    <li>Amazon DynamoDB for storing user settings and lightweight application state data</li>
+</ul>
+
+<p>
+Your use of Google services is subject to Google's privacy policies and terms. Your use of AWS services is subject to Amazon Web Services' privacy policies and terms.
 </p>
 
 <h2>Data Storage and Processing</h2>
 
 <p>
-With user authorization, data retrieved from Google Sheets may be processed and converted into structured JSON format for application use.
+With user authorization, data retrieved from Google Sheets is processed using AWS Lambda functions, where it is filtered, transformed, and converted into structured JSON format.
 </p>
 
 <p>
-Selected and processed data may then be securely stored in Amazon Web Services (AWS) Simple Storage Service (S3) for further processing and operational use.
+Processed data may be stored in Amazon S3 for operational processing and system workflows.
 </p>
 
 <p>
-This stored data is used only to support application functionality such as data analysis, processing workflows, and system operations.
+User-specific settings and lightweight application state information may be stored in Amazon DynamoDB to enable faster access and improve application performance.
 </p>
 
 <p>
-We do not sell or share this data with third parties for marketing or advertising purposes.
+All data processing and storage are performed solely to support application functionality, and are not used for advertising, profiling, or marketing purposes.
 </p>
+
 
 
 <h2>Google Privacy Policy</h2>
@@ -187,6 +203,13 @@ We do not sell or share this data with third parties for marketing or advertisin
 <p>
 <a href="https://policies.google.com/privacy" target="_blank">
 https://policies.google.com/privacy
+</a>
+</p>
+
+<p>
+Amazon Web Services (AWS) Privacy Policy:
+<a href="https://aws.amazon.com/privacy/" target="_blank">
+https://aws.amazon.com/privacy/
 </a>
 </p>
 
@@ -227,4 +250,9 @@ Email: zhanghaien100@gmail.com
 </p>
 
 </body>
+<footer>
+<p>
+This application is not affiliated with Google or Amazon Web Services.
+</p>
+</footer>
 </html>
