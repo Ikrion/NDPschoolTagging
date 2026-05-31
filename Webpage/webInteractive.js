@@ -250,11 +250,13 @@ function initTables() {
 
 // 1. Toggles the Processing Screen and Timer
 function toggleProcessingUI(State, data) {
+    console.log("Updating processing UI!");
+    console.log(`Current state: ${State}`);
     const processingDiv = document.getElementById("processingState");
     const mainContent = document.getElementById("setupState");
     const finshDiv = document.getElementById("finishedState");
 
-    if (State = "processing") { //start processing
+    if (State === "processing") { //start processing
         // Show progress view, hide main view
         if (processingDiv) processingDiv.style.display = "block";
         if (mainContent) mainContent.style.display = "none";
@@ -266,7 +268,7 @@ function toggleProcessingUI(State, data) {
         
         // Reset Progress Bar
         updateProgressUI(0, 0); 
-    } else if (State = "finished") { //finished processing
+    } else if (State === "finished") { //finished processing
         // Hide progress view, show finished view
         if (processingDiv) processingDiv.style.display = "none";
         if (finshDiv) finshDiv.style.display = "block";
@@ -288,7 +290,7 @@ function toggleProcessingUI(State, data) {
     else { //error
         // Hide progress view, show finished view
         if (processingDiv) processingDiv.style.display = "none";
-        if (mainContent) finshDiv.style.display = "block";
+        if (mainContent) mainContent.style.display = "block";
 
         // Stop Timer
         clearInterval(timerInterval);

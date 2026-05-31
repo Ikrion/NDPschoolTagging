@@ -26,8 +26,8 @@ let rowsPerPage = 50;
 const oidcConfig = {
   authority: "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_RlJKEaPKc", 
   client_id: "3riavog3fklq7b6so99rs4vag6",
-  redirect_uri: "https://ikrion.github.io/NDPschoolTagging/",  //change if uploading to github
-  post_logout_redirect_uri: "https://ikrion.github.io/NDPschoolTagging/",  //change if uploading to github
+  redirect_uri: "http://localhost/",  //change if uploading to github
+  post_logout_redirect_uri: "http://localhost/",  //change if uploading to github
   response_type: "code", 
   scope: "phone openid email",
   userStore: new oidc.WebStorageStateStore({ store: window.localStorage }),
@@ -260,8 +260,8 @@ async function uploadToLambda(data, filename) {
 
             const urlRequest = await fetch(apiGatewayEndpoint, {
                 method: "POST",
-                headers: { "Authorization": `Bearer ${idToken}`},
-                body: JSON.stringify({ action: "upload", user_id: userId, filename: filename || "application/octet-stream" })
+                headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json"},
+                body: JSON.stringify({ action: "upload", user_id: userId, filename: filename})
             });
 
             if (!urlRequest.ok) throw new Error("Backend rejected URL request");
@@ -277,7 +277,8 @@ async function uploadToLambda(data, filename) {
 
             console.log("this is my data file: ", payload);
             const s3UploadResponse = await fetch(presignedS3Url, {
-                method: "PUT", 
+                method: "PUT",
+                 headers: { "Content-Type": "application/json"},
                 body: payload 
             });
 
@@ -286,6 +287,79 @@ async function uploadToLambda(data, filename) {
         }
     } catch (err) {
         alert(`Pipeline error: ${err.message}`);
+    }
+}
+
+// This download is only for signed in user
+async function downloadFromLambda(filename) {
+    try {
+        const apiGatewayEndpoint = "https://yk056aw14b.execute-api.ap-southeast-1.amazonaws.com/default/NDP_SchoolTagging";
+        const lambdaFunctionURL = "https://mmhsmpwet5fnxxszmelfguxxjy0aigsz.lambda-url.ap-southeast-1.on.aws/";
+        const user = await userManager.getUser();
+
+        if (user && user.id_token) {
+            // S3 Flow (Logged In)
+            const idToken = user.id_token;
+            const userId = user.profile.sub; 
+
+            // 1. Ask the backend for the download ticket
+            const urlRequest = await fetch(apiGatewayEndpoint, {
+                method: "POST",
+                headers: { 
+                    "Authorization": `Bearer ${idToken}`, 
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ 
+                    action: "download", 
+                    user_id: userId, 
+                    filename: filename
+                })
+            });
+
+            if (!urlRequest.ok) throw new Error("Backend rejected URL request");
+            const urlData = await urlRequest.json();
+            
+           // 2. Grab the correct key from your Python response
+            const presignedS3Url = urlData.download_url; 
+            console.log("This is my secure S3 link: ", presignedS3Url);
+
+            // 3. FETCH THE DATA DIRECTLY (No file downloads!)
+            const s3Response = await fetch(presignedS3Url);
+            if (!s3Response.ok) throw new Error("Failed to read data from S3 bucket.");
+            
+            // Parse the data back into a JavaScript Object
+            const processedData = await s3Response.json();
+
+            // 4. Save to Browser Cache (Session Storage)
+            // This keeps the data safe even if they accidentally refresh the page, 
+            // but automatically deletes it when they close the browser tab.
+            //sessionStorage.setItem('cachedAllocationData', JSON.stringify(processedData));
+            
+            
+            if (filename === "users.json")
+            {
+                console.info(`fetching ${filename} data from AWS!`);
+                const CACHE_KEY1 = `${userId}_my_volunteer_data`;
+                parsedData = processedData;
+                storeCache(CACHE_KEY1, parsedData);
+                loadVolunteerDataToUI(parsedData);
+            } else if (filename === "schools.json") {
+                console.info(`fetching ${filename} data from AWS!`);
+                const CACHE_KEY2 = `${userId}_my_school_data`;
+                parsedSchoolData = processedData;
+                storeCache(CACHE_KEY2, parsedSchoolData);
+                loadSchoolDataToUI(parsedSchoolData);
+            } else {
+                console.info(`fetching ${filename} data from AWS!`);
+                const CACHE_KEY3 = `${userId}_my_allocation_data`;
+                allocationData = processedData;
+                storeCache(CACHE_KEY3, allocationData);
+                loadAllocationDataToUI(allocationData);
+            }
+            
+        }
+    } catch (err) {
+        console.error(`Pipeline error:${filename} download from S3 is giving ${err.message}`);
     }
 }
 
@@ -321,23 +395,40 @@ async function initAuth() {
     }
 
     userManager.getUser().then(function (user) {
+        // User is NOT logged in
+        if (!user || user.expired) {
+            console.info("Loading guest data from cache!");
+            const CACHE_KEY1 = "my_volunteer_data";
+            const CACHE_KEY2 = "my_school_data";
+            const CACHE_KEY3 = "my_allocation_data";
+
+            parsedData = getCache(CACHE_KEY1);
+            parsedSchoolData = getCache(CACHE_KEY2);
+            allocationData = getCache(CACHE_KEY3);
+
+            if (parsedData) loadVolunteerDataToUI(parsedData);
+            if (parsedSchoolData) loadSchoolDataToUI(parsedSchoolData);
+            if (allocationData) loadAllocationDataToUI(allocationData);
+        }
+        else { // User is Logged in
+            const userId = user.profile.sub; 
+
+            console.info("Loading user data from cache!");
+            const CACHE_KEY1 = `${userId}_my_volunteer_data`;
+            const CACHE_KEY2 = `${userId}_my_school_data`;
+            const CACHE_KEY3 = `${userId}_my_allocation_data`;
+            
+            parsedData = getCache(CACHE_KEY1);
+            parsedSchoolData = getCache(CACHE_KEY2);
+            allocationData = getCache(CACHE_KEY3);
+
+            if (parsedData) {loadVolunteerDataToUI(parsedData)} else {downloadFromLambda("users.json")};
+            if (parsedSchoolData) {loadSchoolDataToUI(parsedSchoolData)} else {downloadFromLambda("schools.json")};
+            if (allocationData) {loadAllocationDataToUI(allocationData)} else {downloadFromLambda("tagged_allocations.json")};
+        }
+
         updateAuthUI(user, handleSignIn, handleSignOut); // Call the UI file
     });
-
-    const CACHE_KEY1 = "my_volunteer_data";
-    const CACHE_KEY2 = "my_school_data";
-    const CACHE_KEY3 = "my_allocation_data";
-
-    // 1. Try to get valid cached data
-    parsedData = getCache(CACHE_KEY1);
-    parsedSchoolData = getCache(CACHE_KEY2);
-    allocationData = getCache(CACHE_KEY3);
-
-    console.info("Loading data from cache!");
-    if (parsedData) loadVolunteerDataToUI(parsedData);
-    if (parsedSchoolData) loadSchoolDataToUI(parsedSchoolData);
-    if (allocationData) loadAllocationDataToUI(allocationData);
-    
 }
 
 // ==========================================
@@ -356,7 +447,9 @@ async function startDataProcessing() {
         const user = await userManager.getUser();
 
         // Get the total user count
-        const total = parsedData.length;
+        let total = parsedData.length;
+        let currentRepeatCount = 0;
+        let prevCount = 0;
 
         // Inform UI that processing has started (e.g., show a loading spinner)
         //if (window.showProcessingStateUI) window.showProcessingStateUI(true, total);
@@ -369,7 +462,7 @@ async function startDataProcessing() {
         if (user && user.id_token) {
             console.log("Authenticated User: Initiating backend S3 processing...");
             
-            const response = await fetch(apiGatewayEndpoint, {
+            const startResponse = await fetch(apiGatewayEndpoint, {
                 method: "POST",
                 headers: {
                     "Authorization": `Bearer ${user.id_token}`,
@@ -381,10 +474,11 @@ async function startDataProcessing() {
                 })
             });
 
-            if (!response.ok) throw new Error("Failed to start processing on the backend.");
+            if (!startResponse.ok) throw new Error("Failed to start processing on the backend.");
             
             const startData = await startResponse.json();
             const jobId = startData.job_id;
+            console.log("process msg: ", startData.message);
 
             // 3. Begin Polling DynamoDB every 2.5 seconds
             const pollInterval = setInterval(async () => {
@@ -402,11 +496,33 @@ async function startDataProcessing() {
                         })
                     });
 
-                    const progressData = await progressResponse.json();
+                    let progressData = await progressResponse.json();
                     
                     // Assuming DynamoDB returns { ProcessUser: 45, TotalUser: 133, status: "processing" }
                     const current = progressData.ProcessUser || 0;
-                    total = progressData.TotalUser || 0;
+                    
+                    if (current === prevCount)
+                    {
+                        currentRepeatCount++;
+                    }
+                    else
+                    {
+                        currentRepeatCount = 0;
+                    }
+
+                    if (total != progressData.TotalUser)
+                    {
+                        total = progressData.TotalUser || 0;
+                    }
+
+                    if (currentRepeatCount >= 25)
+                    {
+                        toggleProcessingUI("fail",0);
+                        clearInterval(pollInterval);
+                        console.log("Progress check stop due to repeated 0")
+                    }
+
+                    prevCount = current;
 
                     // Update the visual bar
                     updateProgressUI(current, total);
@@ -439,7 +555,7 @@ async function startDataProcessing() {
                         // Instantly break out of loop if Python hit the except block and flagged a failure
                         clearInterval(pollInterval);
                         if (typeof toggleProcessingUI === "function") {
-                            toggleProcessingUI("fail");
+                            toggleProcessingUI("fail",0);
                         }
                         alert(`Backend Processing Failed: ${progressData.status}`);
                     }
@@ -505,8 +621,8 @@ async function startDataProcessing() {
             }
         }
     } catch (err) {
-        console.error("Processing Error:", err);
         toggleProcessingUI("fail");
+        console.error("Processing Error:", err);
         alert("An error occurred during data processing: " + err.message);
     } finally {
         // Stop the loading spinner
