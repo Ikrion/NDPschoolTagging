@@ -1,3 +1,3 @@
 # OnemapProject
 
-[Read our Privacy Policy](./PRIVACY.md)
+[Read our Privacy Policy](./PRIVACY_POLICY.md)
