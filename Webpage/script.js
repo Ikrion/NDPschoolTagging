@@ -26,8 +26,8 @@ let rowsPerPage = 50;
 const oidcConfig = {
   authority: "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_RlJKEaPKc", 
   client_id: "3riavog3fklq7b6so99rs4vag6",
-  redirect_uri: "http://localhost/",  //change if uploading to github
-  post_logout_redirect_uri: "http://localhost/",  //change if uploading to github
+  redirect_uri: "https://ikrion.github.io/NDPschoolTagging/",  //change if uploading to github
+  post_logout_redirect_uri: "https://ikrion.github.io/NDPschoolTagging/",  //change if uploading to github
   response_type: "code", 
   scope: "phone openid email",
   userStore: new oidc.WebStorageStateStore({ store: window.localStorage }),
