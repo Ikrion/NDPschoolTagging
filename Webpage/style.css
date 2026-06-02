@@ -319,6 +319,10 @@ input[type="file"] {
     margin-right: 2%;
 }
 
+.tabulator-row.tabulator-selected {
+    background-color: #dbeafe !important;
+}
+
 /* end of table related */
 
 /* this is for java script */

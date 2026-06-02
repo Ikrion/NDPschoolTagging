@@ -2,9 +2,13 @@
 // ui.js - Handles DOM, UI Manipulations & Tabulator
 // ==========================================
 
+//Tabulator table
 let volunteerTable;
 let schoolTable;
 let allocationTable;
+let individualTable;
+
+let selectedUsers = [];
 
 let currentActiveSection = "VolunteerList"; // Default
 
@@ -60,8 +64,8 @@ function initTables() {
                 // Check all possible Excel column names
                 return data.name || data.Name || data["Full Name"] || "Unknown";
             }, widthGrow: 2, headerFilter: "input" },
-            { title: "Sector", field: "sector", widthGrow: 2, headerFilter: "input", maxWidth: 150 },
-            { title: "Address", field: "address", widthGrow: 4, formatter: "textarea", variableHeight:true, headerFilter: "input" }
+            { title: "Sector", field: "Sector", widthGrow: 2, headerFilter: "input", maxWidth: 150 },
+            { title: "Address", field: "Address", widthGrow: 4, formatter: "textarea", variableHeight:true, headerFilter: "input" }
         ]
     });
 
@@ -90,8 +94,8 @@ function initTables() {
         return (pageIndex * size) + rowIndex + 1;
         }, title:"#", headerSort:false, hozAlign:"center", resizable:false, frozen:true, maxWidth:70},
         columns: [
-            { title: "Name", field: "school_name", widthGrow: 2, headerFilter: "input" },
-            { title: "Address", field: "address", widthGrow: 4, formatter: "textarea", variableHeight:true, headerFilter: "input" },
+            { title: "Name", field: "SchoolName", widthGrow: 2, headerFilter: "input" },
+            { title: "Address", field: "Address", widthGrow: 4, formatter: "textarea", variableHeight:true, headerFilter: "input" },
             { title: "Max Volunteer", field: "max volunteer", widthGrow: 2, headerFilter: "input", maxWidth: 180 },
             { title: "Area", field: "Planning Area", widthGrow: 1, formatter: "textarea", variableHeight:true, headerFilter: "input" }
         ]
@@ -177,6 +181,87 @@ function initTables() {
                 expandedRows.add(row);
             });
         }
+    });
+
+    individualTable = new Tabulator("#dataTableIndividual", {
+        data: [], 
+        placeholder: "No Data Available",
+        layout: "fitColumns",
+        maxHeight: "550px",
+        renderVertical: "basic",
+        pagination: true,
+        paginationMode: "local",
+        paginationSize: 10,
+        paginationSizeSelector: [10, 25, 50, 75, 100],
+        movableColumns: false,
+        resizableColumnFit: true,
+        selectableRows: true,
+        selectableRowsRangeMode: "click",
+        rowSelected: function(row) {
+        const data = row.getData();
+
+            if (!selectedUsers.some(u => u.id === data.id)) {
+                selectedUsers.push(data);
+            }
+
+            console.log("Selected:", selectedUsers);
+        },
+
+        rowDeselected: function(row) {
+            const data = row.getData();
+
+            selectedUsers = selectedUsers.filter(
+                u => u.id !== data.id
+            );
+
+            console.log("Selected:", selectedUsers);
+        },
+        rowHeader: {
+            formatter: "rowSelection",
+            titleFormatter: "rowSelection",
+            hozAlign: "center",
+            headerSort: false,
+            frozen: true,
+            width: 50
+        },
+
+        columns: [
+            {
+                title: "#",
+                formatter: function(cell) {
+                    const table = cell.getTable();
+
+                    const page = table.getPage();
+                    const size = table.getPageSize();
+
+                    const pageIndex = page - 1;
+                    const rowIndex = cell.getRow().getPosition(false) - 1;
+
+                    return (pageIndex * size) + rowIndex + 1;
+                },
+                width: 70,
+                hozAlign: "center"
+            },
+            {
+                title: "Priority", field: "Priority", width: 120, 
+                editor: "list", editorParams: { values: [1,2,3,4] }, 
+                headerFilter: "list", headerFilterParams: { values: {"": "All", 1: "1", 2: "2", 3: "3", 4: "4"} }, resizable:false,
+                // When a cell is edited in Tabulator, pass the change back to script.js
+                cellEdited: function(cell) {
+                    const rowData = cell.getRow().getData();
+                    if (window.handlePriorityEdit) {
+                        window.handlePriorityEdit(rowData.id, rowData.Priority);
+                    }
+                }
+            },
+            { title: "Name", field: "Name", mutateType: "data", // Tells Tabulator to run this on load
+            mutator: function(value, data) {
+                // Check all possible Excel column names
+                return data.name || data.Name || data["Full Name"] || "Unknown";
+            }, widthGrow: 2, headerFilter: "input" },
+            { title: "Sector", field: "Sector", widthGrow: 2, headerFilter: "input", maxWidth: 150 },
+            { title: "Address", field: "Address", widthGrow: 4, formatter: "textarea", variableHeight:true, headerFilter: "input" }
+        ]
     });
 
     window.loadAllocationDataToUI = function(schoolAssignments, parsedSchoolData) {

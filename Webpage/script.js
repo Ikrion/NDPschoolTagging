@@ -31,6 +31,7 @@ const oidcConfig = {
   response_type: "code", 
   scope: "phone openid email",
   userStore: new oidc.WebStorageStateStore({ store: window.localStorage }),
+  monitorSession: true,
   metadata: {
         issuer: "https://cognito-idp.ap-southeast-1.amazonaws.com/ap-southeast-1_RlJKEaPKc",
         authorization_endpoint: "https://ap-southeast-1rljkeapkc.auth.ap-southeast-1.amazoncognito.com/oauth2/authorize",
@@ -134,10 +135,24 @@ async function processUploadedFile(file) {
         if (currentActiveSection === "VolunteerList") {
             parsedData = rawData.map((row, index) => {
                 let p = parseInt(row['Priority']);
-                row['Priority'] = (isNaN(p) || p < 1 || p > 4) ? 4 : p;
-                if (row['address']) row['address'] = row['address'].replace(/#\S+\s?/, '');
+                row['Priority'] = (isNaN(p) || p < 1 || p > 4) ? 1 : p;
                 row['id'] = index; // Unique ID for Tabulator
-                return row;
+                return {
+                    id: index,
+                    Priority: row['Priority'],
+                    Name: row['name'] || row['Name'] || row['Full name'] || row['Full Name'] || '',
+                    Sector: row['sector'] || row['Sector'] ||'',
+                    Address: (
+                                row['Address'] ||
+                                row['address'] ||
+                                row['Home Address'] ||
+                                row['Residential Address'] ||
+                                ''
+                            )
+                            .replace(/\s*#\S+/g, '')
+                            .replace(/\s+/g, ' ')
+                            .trim()
+                };
             });
             
             loadVolunteerDataToUI(parsedData); 
@@ -153,7 +168,26 @@ async function processUploadedFile(file) {
         } 
         // ROUTE 2: School Page is Active
         else if (currentActiveSection === "SchoolList") {
-            parsedSchoolData = rawData;
+            parsedSchoolData = rawData.map((row, index) => {
+                row['id'] = index; // Unique ID for Tabulator
+                return {
+                    id: index,
+                    SchoolName: row['school_name'] || row['school'] || row['school name'] || row['School'] || row['School Name'] || row['School name'] || '',
+                    Address: (
+                                row['Address'] ||
+                                row['address'] ||
+                                row['Home Address'] ||
+                                row['Residential Address'] ||
+                                ''
+                            )
+                            .replace(/\s*#\S+/g, '')
+                            .replace(/\s+/g, ' ')
+                            .trim(),
+                    'max volunteer': row['Max Volunteer'] || row['max volunteer'] || row['Volunteer Needed'] || '',
+                    "Planning Area": row['Area'] || row['area'] ||''
+                    
+                };
+            });;
             
             loadSchoolDataToUI(parsedSchoolData); 
             //updateSchoolSummary();
@@ -380,24 +414,76 @@ async function handleSignOut() {
 }
 
 async function initAuth() {
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('error')) return console.error(urlParams.get('error'));
+    try {
+        const urlParams = new URLSearchParams(window.location.search);
 
-    if (typeof oidc === 'undefined') return console.error("OIDC library missing.");
-    
-    userManager = new oidc.UserManager(oidcConfig);
+        if (urlParams.has('error')) {
+            console.error(urlParams.get('error'));
+            return;
+        }
 
-    if (urlParams.has('code')) {
-        try {
-            await userManager.signinRedirectCallback();
-            window.history.replaceState({}, document.title, window.location.pathname);
-        } catch (err) { return console.error(err); }
-    }
+        if (typeof oidc === 'undefined') {
+            console.error("OIDC library missing.");
+            return;
+        }
 
-    userManager.getUser().then(function (user) {
-        // User is NOT logged in
+        userManager = new oidc.UserManager(oidcConfig);
+
+        // -----------------------------
+        // 1. SAFE CALLBACK HANDLING
+        // -----------------------------
+        const isCallback =
+            window.location.search.includes("code") &&
+            window.location.search.includes("state");
+
+        if (isCallback) {
+            try {
+                await userManager.signinRedirectCallback();
+
+                // Clean URL immediately (prevents re-processing on refresh)
+                window.history.replaceState({}, document.title, window.location.pathname);
+
+            } catch (err) {
+                console.warn("⚠️ Primary callback failed, attempting recovery...", err);
+
+                // 🔥 Recovery attempt (fixes missing state issues)
+                sessionStorage.clear();
+
+                try {
+                    await userManager.signinRedirectCallback();
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                } catch (err2) {
+                    console.error("❌ Callback permanently failed:", err2);
+
+                    // Force user back to login cleanly
+                    await userManager.removeUser();
+                    updateAuthUI(null, handleSignIn, handleSignOut);
+                    return;
+                }
+            }
+        }
+
+        // -----------------------------
+        // 2. SAFE USER LOAD (multi-layer recovery)
+        // -----------------------------
+        let user = await userManager.getUser();
+
+        // fallback: silent login if session exists but getUser fails
         if (!user || user.expired) {
-            console.info("Loading guest data from cache!");
+            try {
+                user = await userManager.signinSilent();
+                console.log("🔄 Silent login restored session");
+            } catch (silentErr) {
+                user = null;
+            }
+        }
+
+        // -----------------------------
+        // 3. GUEST MODE
+        // -----------------------------
+        if (!user || user.expired) {
+            console.info("🟡 Guest mode: loading cached global data");
+
             const CACHE_KEY1 = "my_volunteer_data";
             const CACHE_KEY2 = "my_school_data";
             const CACHE_KEY3 = "my_allocation_data";
@@ -410,25 +496,144 @@ async function initAuth() {
             if (parsedSchoolData) loadSchoolDataToUI(parsedSchoolData);
             if (allocationData) loadAllocationDataToUI(allocationData);
         }
-        else { // User is Logged in
-            const userId = user.profile.sub; 
 
-            console.info("Loading user data from cache!");
+        // -----------------------------
+        // 4. LOGGED-IN MODE
+        // -----------------------------
+        else {
+            const userId = user.profile.sub;
+
+            console.info("🟢 Logged in: loading user-specific cache");
+
             const CACHE_KEY1 = `${userId}_my_volunteer_data`;
             const CACHE_KEY2 = `${userId}_my_school_data`;
             const CACHE_KEY3 = `${userId}_my_allocation_data`;
-            
+
             parsedData = getCache(CACHE_KEY1);
             parsedSchoolData = getCache(CACHE_KEY2);
             allocationData = getCache(CACHE_KEY3);
 
-            if (parsedData) {loadVolunteerDataToUI(parsedData)} else {downloadFromLambda("users.json")};
-            if (parsedSchoolData) {loadSchoolDataToUI(parsedSchoolData)} else {downloadFromLambda("schools.json")};
-            if (allocationData) {loadAllocationDataToUI(allocationData)} else {downloadFromLambda("tagged_allocations.json")};
+            if (parsedData) {
+                loadVolunteerDataToUI(parsedData);
+            } else {
+                await downloadFromLambda("users.json");
+            }
+
+            if (parsedSchoolData) {
+                loadSchoolDataToUI(parsedSchoolData);
+            } else {
+                await downloadFromLambda("schools.json");
+            }
+
+            if (allocationData) {
+                loadAllocationDataToUI(allocationData);
+            } else {
+                await downloadFromLambda("tagged_allocations.json");
+            }
         }
 
-        updateAuthUI(user, handleSignIn, handleSignOut); // Call the UI file
-    });
+        // -----------------------------
+        // 5. ALWAYS UPDATE UI LAST
+        // -----------------------------
+        updateAuthUI(user, handleSignIn, handleSignOut);
+
+    } catch (err) {
+        console.error("🚨 initAuth crashed:", err);
+
+        // fallback safety net
+        updateAuthUI(null, handleSignIn, handleSignOut);
+    }
+}
+
+async function safeAuthInit(userManager) {
+    try {
+        // 1. Detect callback attempt
+        const url = new URL(window.location.href);
+        const hasAuthResponse = url.searchParams.has("code") && url.searchParams.has("state");
+
+        if (hasAuthResponse) {
+            console.log("🔐 Processing login callback...");
+
+            const user = await userManager.signinRedirectCallback();
+
+            // Clean URL after success
+            window.history.replaceState({}, document.title, window.location.pathname);
+
+            return user;
+        }
+
+        // 2. Try silent restore first
+        let user = await userManager.getUser();
+
+        if (user && !user.expired) {
+            console.log("✅ Existing session found");
+            return user;
+        }
+
+        // 3. Try silent renew (bulletproof layer)
+        try {
+            user = await userManager.signinSilent();
+            console.log("🔄 Silent login restored session");
+            return user;
+        } catch (silentErr) {
+            console.log("⚠️ Silent login failed, user must sign in");
+        }
+
+        return null;
+
+    } catch (err) {
+        console.error("❌ Auth recovery failed:", err);
+
+        // IMPORTANT: clear broken state and recover
+        sessionStorage.clear();
+
+        return null;
+    }
+}
+
+async function safeSigninCallback(userManager) {
+    const url = new URL(window.location.href);
+
+    if (!url.searchParams.has("code")) {
+        return null;
+    }
+
+    try {
+        return await userManager.signinRedirectCallback();
+    } catch (err) {
+        console.warn("⚠️ First callback attempt failed:", err);
+
+        // 🔁 Recovery attempt (state might be lost)
+        sessionStorage.clear();
+
+        try {
+            return await userManager.signinRedirectCallback();
+        } catch (err2) {
+            console.error("❌ Callback permanently failed:", err2);
+
+            // Force re-login
+            await userManager.signinRedirect();
+            return null;
+        }
+    }
+}
+
+async function emergencyAuthRecovery() {
+    console.log("🚨 Attempting emergency recovery...");
+
+    sessionStorage.clear();
+
+    try {
+        const user = await userManager.getUser();
+
+        if (user) return user;
+
+        await userManager.removeUser();
+    } catch (e) {
+        console.error("Recovery failed:", e);
+    }
+
+    return null;
 }
 
 // ==========================================
@@ -515,11 +720,11 @@ async function startDataProcessing() {
                         total = progressData.TotalUser || 0;
                     }
 
-                    if (currentRepeatCount >= 25)
+                    if (currentRepeatCount >= 50)
                     {
                         toggleProcessingUI("fail",0);
                         clearInterval(pollInterval);
-                        console.log("Progress check stop due to repeated 0")
+                        console.log("Progress check stop due to repeated 0 for 2 mins")
                     }
 
                     prevCount = current;
@@ -628,6 +833,17 @@ async function startDataProcessing() {
         // Stop the loading spinner
         //if (window.showProcessingStateUI) window.showProcessingStateUI(false);
     }
+}
+
+//for selected processing
+function processSelectedUsers() {
+    console.log(selectedUsers);
+
+    selectedUsers.forEach(user => {
+        console.log(
+            `Processing ${user.Name} (${user.id})`
+        );
+    });
 }
 
 // =========================
