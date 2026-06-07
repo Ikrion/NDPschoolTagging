@@ -10,7 +10,8 @@ let individualTable;
 
 let selectedUsers = [];
 
-let currentActiveSection = "VolunteerList"; // Default
+window.currentActiveSection = "VolunteerList"; // Default
+window.modalMode = 'import'; //Default
 
 // Global variables for timer management
 let processStartTime;
@@ -264,48 +265,6 @@ function initTables() {
         ]
     });
 
-    window.loadAllocationDataToUI = function(schoolAssignments, parsedSchoolData) {
-        if (allocationTable) {
-            // 1. Debug line: check exactly what your AWS Python engine returned
-            console.log("Raw backend data received:", schoolAssignments);
-
-            let tableRows = [];
-
-            if (schoolAssignments?.assignments) {
-
-                tableRows = Object.entries(schoolAssignments.assignments).map(
-                    ([schoolName, schoolData]) => {
-
-                        const volunteers = Object.entries(schoolData)
-                            .filter(([key]) => key.startsWith("User"))
-                            .map(([_, user]) => ({
-                                name: user?.Name || "",
-                                travelTime: user?.["Travel Time"] || "",
-                                minutes: user?.["Total Minutes"] || 0,
-                                distance: user?.["Distance (meters)"] || 0
-                            }));
-
-                        return {
-                            school: schoolName,
-                            area: schoolData.Area || "",
-                            maxVolunteers: schoolData["Max Volunteers"] || 0,
-                            volunteers: volunteers
-                        };
-                    }
-                );
-            }
-
-            if (schoolAssignments?.summary_statistics) {
-                document.getElementById("sumSchoolFilled").innerText = `${schoolAssignments.summary_statistics["Schools Filled"]} / ${schoolAssignments.summary_statistics["Total School"]}`;
-                document.getElementById("sumTotalAssign").innerText = schoolAssignments.summary_statistics["Total Assigned"];
-                document.getElementById("sumTotalUnassign").innerText = schoolAssignments.summary_statistics["Total Unassigned"];
-            }
-
-            // 3. Pass the newly formatted flat array to Tabulator
-            // Replace 'yourTabulatorInstance' with the actual variable name of your table (e.g., table, allocationTable)
-            allocationTable.setData(tableRows);
-        }
-    };
 
     // Add this helper to toggle a loading spinner or disable buttons
     window.showProcessingStateUI = function(isProcessing, totalVolunteers = 0) {
@@ -504,6 +463,49 @@ async function loadSchoolDataToUI(data) {
         }
 }
 
+window.loadAllocationDataToUI = function(schoolAssignments, parsedSchoolData) {
+        if (allocationTable) {
+            // 1. Debug line: check exactly what your AWS Python engine returned
+            console.log("Raw backend data received:", schoolAssignments);
+
+            let tableRows = [];
+
+            if (schoolAssignments?.assignments) {
+
+                tableRows = Object.entries(schoolAssignments.assignments).map(
+                    ([schoolName, schoolData]) => {
+
+                        const volunteers = Object.entries(schoolData)
+                            .filter(([key]) => key.startsWith("User"))
+                            .map(([_, user]) => ({
+                                name: user?.Name || "",
+                                travelTime: user?.["Travel Time"] || "",
+                                minutes: user?.["Total Minutes"] || 0,
+                                distance: user?.["Distance (meters)"] || 0
+                            }));
+
+                        return {
+                            school: schoolName,
+                            area: schoolData.Area || "",
+                            maxVolunteers: schoolData["Max Volunteers"] || 0,
+                            volunteers: volunteers
+                        };
+                    }
+                );
+            }
+
+            if (schoolAssignments?.summary_statistics) {
+                document.getElementById("sumSchoolFilled").innerText = `${schoolAssignments.summary_statistics["Schools Filled"]} / ${schoolAssignments.summary_statistics["Total School"]}`;
+                document.getElementById("sumTotalAssign").innerText = schoolAssignments.summary_statistics["Total Assigned"];
+                document.getElementById("sumTotalUnassign").innerText = schoolAssignments.summary_statistics["Total Unassigned"];
+            }
+
+            // 3. Pass the newly formatted flat array to Tabulator
+            // Replace 'yourTabulatorInstance' with the actual variable name of your table (e.g., table, allocationTable)
+            allocationTable.setData(tableRows);
+        }
+    };
+
 // --- DASHBOARD SUMMARIES ---
 function updateSummaryUI(parsedData) {
     let counts = { 1: 0, 2: 0, 3: 0, 4: 0 };
@@ -563,25 +565,54 @@ function showSection(id, event) {
     currentActiveSection = id;
 }
 
-function openModal() { document.getElementById("uploadModal").style.display = "flex"; }
+function btnAction(actionType) { 
+    modal = document.getElementById("uploadModal"); 
+    modalname = document.getElementById("modalTitle");
+
+    switch(actionType) {
+        case 'openImport':
+            modal.style.display = "flex";
+            modalname.innerText="Select File Source";
+            document.getElementById("LocalFileBtn").innerText="Upload from Computer";
+            document.getElementById("GoogleFileBtn").innerText="Choose from Google Drive";
+            modalMode = 'import';
+            break;
+        case 'openExport':
+            modal.style.display = "flex";
+            modalname.innerText="Select Export Location";
+            document.getElementById("LocalFileBtn").innerText="Download to Computer";
+            document.getElementById("GoogleFileBtn").innerText="Upload to Google Drive";
+            modalMode = 'export';
+            break;
+        case 'openLocal':
+            if (modalMode === "import")
+                document.getElementById("fileInput").click();
+            else 
+                triggerFileExport("local");
+            break;
+        case 'openDrive':
+            if (modalMode === "import")
+                selectGoogleDrive("import");
+            else
+                selectGoogleDrive("export");
+            break;
+        case 'closeModal':
+            modal.style.display = "none";
+            break;
+        case 'saveData':
+            alert("Currently Not working");
+            break;
+    }
+    
+}
 function closeModal() { document.getElementById("uploadModal").style.display = "none"; }
 function selectLocal() { document.getElementById("fileInput").click(); }
-function showAlert(message)
-{
-    alert(message);
-}
 
 // --- AUTHENTICATION UI ---
 function updateAuthUI(user, handleSignIn, handleSignOut) {
     const button = document.getElementById("signIn") || document.getElementById("signOut");
-    //const safeSetText = (id, text) => { if (document.getElementById(id)) document.getElementById(id).textContent = text; };
 
     if (user) {
-        //safeSetText("email", user.profile?.email || "");
-        //safeSetText("access-token", user.access_token || "");
-        //safeSetText("id-token", user.id_token || "");
-        //safeSetText("refresh-token", user.refresh_token || "");
-         
         if (button) {
             button.textContent = "Log out";
             button.id = "signOut";
@@ -589,11 +620,6 @@ function updateAuthUI(user, handleSignIn, handleSignOut) {
             button.addEventListener("click", handleSignOut);
         }
     } else {
-        //safeSetText("email", "");
-        //safeSetText("access-token", "");
-        //safeSetText("id-token", "");
-        //safeSetText("refresh-token", "");
-            
         if (button) {
             button.textContent = "Sign In";
             button.id = "signIn";
@@ -601,10 +627,4 @@ function updateAuthUI(user, handleSignIn, handleSignOut) {
             button.addEventListener("click", handleSignIn);
         }
     }
-}
-
-function test()
-{
-    //console.log(volunteerTable.getPageSize());
-    alert("Currently Not working")
 }

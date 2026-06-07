@@ -32,16 +32,21 @@
             <button class="menu_btn" id="4" onclick="showSection('MassAssign')">Mass Assign</button>
             <button class="menu_btn" id="5" onclick="showSection('IndividualAssign')">Individual Assign</button>
             <button class="menu_btn" id="6" onclick="showSection('Logs')">Logs</button>
+
+            <div class="bottom_links">
+                <a href="https://ikrion.github.io/NDPschoolTagging/changelog.html" class="bottom_link" target="_blank">Changelog</a>
+                <a href="https://ikrion.github.io/NDPschoolTagging/privacy-policy.html" class="bottom_link" target="_blank">Privacy Policy</a>
+            </div>
         </div>
         <div id="uploadModal" class="modal">
             <div class="modal_content">
-                <h2>Select File Source</h2>
+                <h2 id="modalTitle">Select File Source</h2>
 
-                <button class="btn" onclick="selectLocal()">Upload Local Excel</button>
-                <button class="btn" onclick="selectGoogleDrive()">Choose from Google Drive</button>
+                <button class="btn" id="LocalFileBtn" onclick="btnAction('openLocal')"></button>
+                <button class="btn" id="GoogleFileBtn" onclick="btnAction('openDrive')"></button>
 
                 <br><br>
-                <button class="btn btn-secondary" onclick="closeModal()">Cancel</button>
+                <button class="btn btn-secondary" onclick="btnAction('closeModal')">Cancel</button>
 
                 <!-- hidden file input -->
                 <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" />
@@ -52,8 +57,8 @@
             <div class="top_action_row">
                 <h2 class="summary_title">Volunteer Summary</h2>
                 <div class="action_buttons">
-                    <button class="btn btn-secondary" onclick="openModal()">Import File</button>
-                    <button class="btn btn-secondary">Export File</button>
+                    <button class="btn btn-secondary" onclick="btnAction('openImport')">Import File</button>
+                    <button class="btn btn-secondary" onclick="btnAction('openExport')">Export File</button>
                 </div>
             </div>
 
@@ -87,7 +92,7 @@
             </div>
 
             <div class="footer_right">
-                    <button class="btn" onclick="test()">Save Changes</button>
+                    <button class="btn" onclick="btnAction('saveData')">Save Changes</button>
             </div>
 
         </div>
@@ -96,8 +101,8 @@
             <div class="top_action_row">
                 <h2 class="summary_title">School Summary</h2>
                 <div class="action_buttons">
-                    <button class="btn btn-secondary" onclick="openModal()">Import File</button>
-                    <button class="btn btn-secondary">Export File</button>
+                    <button class="btn btn-secondary" onclick="btnAction('openImport')">Import File</button>
+                    <button class="btn btn-secondary" onclick="btnAction('openExport')">Export File</button>
                 </div>
             </div>
 
@@ -123,7 +128,7 @@
             </div>
 
             <div class="footer_right">
-                    <button class="btn" onclick="test()">Save Changes</button>
+                    <button class="btn" onclick="btnAction('saveData')">Save Changes</button>
             </div>
 
         </div>
@@ -131,8 +136,8 @@
             <div class="top_action_row">
                 <h2 class="summary_title">Allocation Summary</h2>
                 <div class="action_buttons">
-                    <button class="btn btn-secondary" onclick="openModal()">Import File</button>
-                    <button class="btn btn-secondary">Export File</button>
+                    <button class="btn btn-secondary" onclick="btnAction('openImport')">Import File</button>
+                    <button class="btn btn-secondary" onclick="btnAction('openExport')">Export File</button>
                 </div>
             </div>
 
@@ -158,7 +163,7 @@
             </div>
 
             <div class="footer_right">
-                    <button class="btn" onclick="test()">Save Changes</button>
+                    <button class="btn" onclick="btnAction('saveData')">Save Changes</button>
             </div>
 
         </div>
@@ -253,13 +258,79 @@
             </div>
 
             <div class="footer_right">
-                    <button class="btn" onclick="test()">Save Changes</button>
+                    <button class="btn" onclick="btnAction('saveData')">Save Changes</button>
             </div>
         </div>
         <div class="content_container" id="Logs">
             <p> Working In Progress</p>
         </div>
     </div>
+
+    <div id="driveModal" class="drive-modal hidden">
+
+    <div class="drive-header">
+        <div id="breadcrumbs" class="breadcrumbs">My Drive</div>
+        <button onclick="closeDrive()">✕</button>
+    </div>
+
+    <div class="drive-toolbar">
+        <div class="search-bar">
+            <input
+                id="searchBox"
+                type="text"
+                placeholder="Search in Drive"
+                oninput="onSearch(this.value)"
+            />
+
+            <select onchange="setSearchScope(this.value)">
+                <option value="folder">This folder</option>
+                <option value="drive">Entire Drive</option>
+            </select>
+
+        </div>
+
+        <select onchange="setSort(this.value)">
+        <option value="name">Name</option>
+        <option value="date">Modified</option>
+        <option value="type">Type</option>
+        </select>
+    </div>
+
+    <div class="drive-layout">
+
+        <!-- LEFT: Shared Drives -->
+        <div class="left-panel">
+        <div id="sharedDrives" class="sidebar">
+            <div class="sidebar-title">Shared drives</div>
+        </div>
+        </div>
+
+        <!-- MIDDLE: Folder Tree -->
+        <div class="middle-panel">
+        <div id="tree" class="sidebar">
+            <div class="sidebar-title">My Drive</div>
+        </div>
+        </div>
+
+        <!-- MAIN: Files -->
+        <div class="main-panel">
+
+            <div id="fileList" class="file-list"></div>
+
+            <div class="load-more">
+                <button id="loadMoreBtn" onclick="loadMore()">Load more</button>
+            </div>
+
+        </div>
+
+    </div>
+
+    <div class="drive-footer">
+        <button onclick="confirmSelection()">Select</button>
+    </div>
+
+</div>
+
     <script src="https://unpkg.com/tabulator-tables@6.3.0/dist/js/tabulator.min.js"></script>
     <script src="webInteractive.js" defer></script>
     <script src="script.js" defer></script>

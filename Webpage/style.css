@@ -84,6 +84,22 @@ input[type="file"] {
     background: #280707;
 }
 
+.bottom_links {
+    margin-top: auto; /* pushes whole group to bottom */
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.bottom_link {
+    text-decoration: none;
+    text-align: center;
+    font-size: 18px;
+
+    margin-left: 5px;
+    margin-right: 5px;
+    margin-bottom: 8px;
+}
 
 .top_action_row {
     display: flex;
@@ -97,7 +113,6 @@ input[type="file"] {
     margin: 0;
     color: #333;
 }
-
 
 .summary_dashboard {
     display: flex;
@@ -136,7 +151,6 @@ input[type="file"] {
     width: 98%;
 }
 
-
 .tabulator {
     width: 100% !important;
 }
@@ -144,7 +158,6 @@ input[type="file"] {
 .tabulator-tableholder {
     overflow-x: hidden !important;
 }
-
 
 /* Mass Assign Section Start */
 /* Container and Titles */
@@ -332,4 +345,344 @@ input[type="file"] {
 
 .content_section.active {
     display: block;
+}
+
+/* This is for google drive UI */
+:root {
+  --bg: #ffffff;
+  --border: #e0e0e0;
+  --text: #202124;
+  --muted: #5f6368;
+  --hover: #f1f3f4;
+  --selected: #e8f0fe;
+  --blue: #1a73e8;
+}
+
+/* =========================
+   MODAL CONTAINER
+========================= */
+.drive-modal {
+  position: fixed;
+  inset: 24px;
+  background: var(--bg);
+  border-radius: 8px;
+  box-shadow: 0 6px 24px rgba(0,0,0,0.2);
+  display: flex;
+  flex-direction: column;
+  font-family: "Google Sans", Arial, sans-serif;
+  color: var(--text);
+  overflow: hidden;
+  z-index: 5;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* =========================
+   HEADER (Breadcrumbs)
+========================= */
+.drive-header {
+  height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.breadcrumbs {
+  font-size: 14px;
+  color: var(--muted);
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.breadcrumbs span {
+  cursor: pointer;
+  color: var(--blue);
+}
+
+.breadcrumbs span:hover {
+  text-decoration: underline;
+}
+
+/* =========================
+   TOOLBAR (Search + Sort)
+========================= */
+.drive-toolbar {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border);
+  background: #fff;
+}
+
+.drive-toolbar input {
+  flex: 1;
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 0 14px;
+  font-size: 14px;
+  outline: none;
+  background: #f8f9fa;
+}
+
+.drive-toolbar input:focus {
+  background: #fff;
+  border-color: #dadce0;
+  box-shadow: 0 1px 2px rgba(0,0,0,0.1);
+}
+
+.drive-toolbar select {
+  height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0 10px;
+  background: #fff;
+}
+
+.search-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+}
+
+.search-bar select {
+    border-radius: 20px;
+    padding: 8px;
+    border: 1px solid #ddd;
+}
+
+.search-bar input {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 20px;
+    border: 1px solid #ddd;
+    outline: none;
+
+}
+
+.search-scope {
+    display: flex;
+    border: 1px solid #ddd;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.search-scope button {
+    border: none;
+    padding: 8px 12px;
+    background: white;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.search-scope button.active {
+    background: #e8f0fe;
+    color: #1a73e8;
+    font-weight: 600;
+}
+
+/* =========================
+   MAIN LAYOUT (3 columns)
+========================= */
+.drive-layout {
+  flex: 1;
+  display: flex;
+  overflow: hidden;
+}
+
+/* =========================
+   SIDEBARS
+========================= */
+.sidebar {
+  width: 240px;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  padding: 8px 0;
+}
+
+.sidebar-title {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* shared drives + tree items */
+.sidebar div {
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sidebar div:hover {
+  background: var(--hover);
+}
+
+/* =========================
+   MAIN FILE PANEL
+========================= */
+.main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* FILE LIST */
+.file-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* =========================
+   ROW STYLE (Drive-like)
+========================= */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  border-bottom: 1px solid #f1f3f4;
+}
+
+.row:hover {
+  background: var(--hover);
+}
+
+.row.selected {
+  background: #e8f0fe;
+  border-left: 3px solid #1a73e8;
+}
+
+.row .icon {
+  width: 26px;
+  font-size: 18px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.row:hover .icon {
+  transform: scale(1.05);
+}
+
+.row .meta {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+/* =========================
+   LOAD MORE
+========================= */
+.load-more {
+  padding: 10px;
+  text-align: center;
+  border-top: 1px solid var(--border);
+}
+
+.load-more button {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.load-more button:hover {
+  background: var(--hover);
+}
+
+/* =========================
+   FOOTER
+========================= */
+.drive-footer {
+  height: 52px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 16px;
+  background: #fff;
+}
+
+.drive-footer button {
+  background: var(--blue);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.drive-footer button:hover {
+  background: #1557b0;
+}
+
+/* =========================
+   SCROLLBAR (Drive-like subtle)
+========================= */
+.file-list::-webkit-scrollbar,
+.sidebar::-webkit-scrollbar {
+  width: 8px;
+}
+
+.file-list::-webkit-scrollbar-thumb,
+.sidebar::-webkit-scrollbar-thumb {
+  background: #dadce0;
+  border-radius: 4px;
+}
+
+.file-list::-webkit-scrollbar-track,
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.file-icon {
+  width: 20px;
+  height: 20px;
+  display: inline-block;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center;
+  flex-shrink: 0;
+}
+
+/* Folder (Windows yellow folder) */
+.icon-folder {
+  background-image: url("https://img.icons8.com/fluency/48/folder-invoices.png");
+}
+
+/* Excel (green sheet) */
+.icon-excel {
+  background-image: url("https://img.icons8.com/color/48/microsoft-excel-2019--v1.png");
+}
+
+/* JSON (generic code file) */
+.icon-json {
+  background-image: url("https://img.icons8.com/fluency/48/source-code.png");
+}
+
+/* PDF */
+.icon-pdf {
+  background-image: url("https://img.icons8.com/fluency/48/pdf.png");
+}
+
+/* Default file */
+.icon-file {
+  background-image: url("https://img.icons8.com/fluency/48/document.png");
 }

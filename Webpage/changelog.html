@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+<style>
+    body {
+        font-family: Arial, sans-serif;
+        margin: 30px;
+        line-height: 1.6;
+    }
+
+    h1, h2, h3 {
+        color: #333;
+    }
+
+    h1 {
+        border-bottom: 2px solid #ddd;
+        padding-bottom: 10px;
+    }
+
+    .updated {
+        color: #666;
+        margin-bottom: 30px;
+    }
+
+    .version {
+        margin-bottom: 30px;
+    }
+
+    .feature {
+        color: #2e7d32;
+        font-weight: bold;
+    }
+
+    .improvement {
+        color: #1565c0;
+        font-weight: bold;
+    }
+
+    .fix {
+        color: #d84315;
+        font-weight: bold;
+    }
+
+    .wip {
+        color: #8e24aa;
+        font-weight: bold;
+    }
+
+    .wip-list {
+        border-left: 4px solid #8e24aa;
+        padding-left: 15px;
+        background: #faf5ff;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        margin-bottom: 20px;
+    }
+
+    .status-badge-green {
+        display: inline-block;
+        background: green;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        margin-left: 8px;
+    }
+    .status-badge-yellow {
+        display: inline-block;
+        background: #C9A227;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        margin-left: 8px;
+    }
+    .status-badge-red {
+        display: inline-block;
+        background: red;
+        color: white;
+        padding: 2px 8px;
+        border-radius: 12px;
+        font-size: 12px;
+        margin-left: 8px;
+    }
+
+    ul {
+        margin-top: 5px;
+    }
+
+    .version-body {
+        overflow: hidden;
+        max-height: 1000px;
+        transition: all 0.25s ease;
+    }
+
+    .version.collapsed .version-body {
+        max-height: 0;
+        opacity: 0;
+        padding: 0;
+    }
+
+    /* arrow indicator */
+    .version-header {
+        cursor: pointer;
+        user-select: none;
+        position: relative;
+        padding-right: 20px;
+    }
+
+    .version-header:hover {
+        background: #e8f0fe;   /* soft blue (Google-like hint) */
+    }
+
+    /* arrow */
+    .version-header::after {
+        content: "▼";
+        position: absolute;
+        right: 0;
+        transition: transform 0.2s ease;
+    }
+
+    /* rotate arrow when collapsed */
+    .version.collapsed .version-header::after {
+        transform: rotate(90deg);
+    }
+</style>
+</head>
+<body>
+
+<h1>Changelog</h1>
+
+<div class="updated">
+    Last Updated: June 7, 2026
+</div>
+
+<!-- Work In Progress shown first -->
+<h2 class="wip">🚧 Work In Progress</h2>
+
+<div class="wip-list">
+    <p style="margin-bottom: 0%;"><strong>Upcoming features and improvements currently being worked on:</strong></p>
+    <p style="margin-top: 0%;"> (Subjected to changes as and when needed)</p>
+
+    <ul>
+        <li>Faster processing of data <span class="status-badge-green">ACTIVE</span></li>
+        <li>Faster loading of data when page is loaded <span class="status-badge-yellow">PAUSED</span></li>
+        <li>Saving of Modified data <span class="status-badge-red">NOT STARTED</span></li>
+        <li>Individual assigning certain volunteers only <span class="status-badge-red">NOT STARTED</span></li>
+        <li>Logs to keep track of any import of data, saving of data, changes to volunteer assignments, error message that appear. <span class="status-badge-red">NOT STARTED</span></li>
+    </ul>
+</div>
+<hr>
+<div class="version">
+    <h2 class="version-header" onclick="toggleVersion(this)">7 June 2026 Update</h2>
+
+    <div class="version-body">
+        <h3 class="feature">New Features</h3>
+        <ul>
+            <li>Added folder tree navigation with expandable folders.</li>
+            <li>Added breadcrumb navigation.</li>
+            <li>Added support for Shared Drives.</li>
+            <li>Added search functionality within Google Drive.</li>
+            <li>Added sorting by Name, Modified Date, and File Type.</li>
+            <li>Data can now be exported</li>
+            <li>Added Changelog link</li>
+            <li>Added Privacy Policy link</li>
+        </ul>
+
+        <h3 class="improvement">Changes</h3>
+        <ul>
+            <li>Changed Google Drive Explorer interface.</li>
+        </ul>
+    </div>
+</div>
+
+<!--
+<div class="version">
+    <h2>Version 2.5.0</h2>
+
+    <h3 class="feature">New Features</h3>
+    <ul>
+        <li>Added custom Google Drive Explorer interface.</li>
+        <li>Added folder tree navigation with expandable folders.</li>
+        <li>Added breadcrumb navigation.</li>
+        <li>Added support for Shared Drives.</li>
+        <li>Added search functionality within Google Drive.</li>
+        <li>Added sorting by Name, Modified Date, and File Type.</li>
+    </ul>
+
+    <h3 class="improvement">Changes</h3>
+    <ul>
+        <li>Improved Google Drive import workflow.</li>
+        <li>Improved export destination selection.</li>
+        <li>Enhanced folder navigation performance using lazy loading.</li>
+        <li>Added pagination support with "Load More" functionality.</li>
+        <li>Added file-type specific icons for Excel, JSON, PDF, and folders.</li>
+    </ul>
+
+    <h3 class="fix">Bug Fixes</h3>
+    <ul>
+        <li>Fixed breadcrumb stacking issue.</li>
+        <li>Fixed folder tree not refreshing correctly.</li>
+        <li>Fixed navigation state when returning to root folder.</li>
+        <li>Fixed export folder selection behavior.</li>
+        <li>Fixed Google Drive authentication scope issues.</li>
+        <li>Fixed folder highlighting persistence.</li>
+    </ul>
+</div>
+
+========================
+Template below here
+========================
+<div class="version"> (class="version collapsed") <--- this mean that its disable
+    <h2 class="version-header" onclick="toggleVersion(this)">7 June 2026 Update</h2>
+
+    <div class="version-body">
+        <h3 class="feature">New Features</h3>
+        <ul>
+            <li>Added Google Drive file import support.</li>
+            <li>Added Google Drive file export support.</li>
+        </ul>
+
+        <h3 class="fix">Bug Fixes</h3>
+        <ul>
+            <li>Resolved Excel file upload validation issues.</li>
+            <li>Fixed Drive Picker initialization timing issues.</li>
+        </ul>
+    </div>
+</div>
+-->
+
+</body>
+<script>
+    function toggleVersion(header) {
+        const version = header.parentElement;
+        version.classList.toggle("collapsed");
+    }
+</script>
+</html>
