@@ -48,6 +48,7 @@ let rowsPerPage = 50;
 const DEFAULT_CACHE_KEY1 = "volunteer_data";
 const DEFAULT_CACHE_KEY2 = "school_data";
 const DEFAULT_CACHE_KEY3 = "allocation_data";
+const DEFAULT_CACHE_KEY4 = "summary_data";
 
 // =========================
 // OIDC & AWS COGNITO CONFIG
@@ -156,6 +157,7 @@ function getCurrentPageConfig() {
     return registry[activeSection] || registry["VolunteerList"];
 }
 
+
 function storeCache(key, data) {
   try {
     const cachePayload = {
@@ -229,7 +231,10 @@ async function executeExcelExportWorkflow(destination, folderId = null) {
                     "Priority": v.Priority,
                     "Name": v.Name,
                     "Sector": v.Sector,
-                    "Address": v.Address
+                    "Address": v.Address,
+                    "Area": s["Area"],
+                    "Latitude": s.Latitude,
+                    "Longitude": s.Longitude
                 }));
                 
                 const volSheet = XLSX.utils.json_to_sheet(cleanVolunteers);
@@ -449,7 +454,7 @@ async function processUploadedFile(file) {
     //only upload immediatly if user is logged in
     const user = await userManager.getUser();
 
-    reader.onload = function(event) {
+    reader.onload = async function(event) {
         const data = new Uint8Array(event.target.result);
         const workbook = XLSX.read(data, { type: 'array' });
         const rawData = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
@@ -462,7 +467,7 @@ async function processUploadedFile(file) {
                 row['id'] = index; // Unique ID for Tabulator
                 return {
                     id: index,
-                    Priority: row['Priority'],
+                    Priority: row['Priority'] || row['priority'],
                     Name: row['name'] || row['Name'] || row['Full name'] || row['Full Name'] || '',
                     Sector: row['sector'] || row['Sector'] ||'',
                     Address: (
@@ -474,7 +479,10 @@ async function processUploadedFile(file) {
                             )
                             .replace(/\s*#\S+/g, '')
                             .replace(/\s+/g, ' ')
-                            .trim()
+                            .trim(),
+                    Lats: row['Latitude'] || '',
+                    Lons: row['Longitude'] || '',
+                    Area: row['Area'] || row['area'] || row['Planning Area'] || ''
                 };
             });
             
@@ -486,6 +494,7 @@ async function processUploadedFile(file) {
             else { //Guest save to cache
                 if (storeCache(DEFAULT_CACHE_KEY1, parsedData))
                     console.info("Saved volunteer data to cache!");
+
             }
         } 
         // ROUTE 2: School Page is Active
@@ -520,6 +529,16 @@ async function processUploadedFile(file) {
             else { //Guest save to cache
                 storeCache(DEFAULT_CACHE_KEY2, parsedSchoolData);
                 console.info("Saving school data to cache!");
+
+                //call lambda to process the lats, lons, area (Pending considering if should only allow logged in user to verify so that their process can save on API calls)
+                const verifyRequest = await fetch(apiGatewayEndpoint, {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "verify_schools", user_id: userId})
+                    });
+
+                    if (!verifyRequest.ok) throw new Error("Backend rejected URL request");
+                    const urlData = await verifyRequest.json();
             }
         }
         
@@ -532,6 +551,7 @@ async function processUploadedFile(file) {
 // =========================
 // GOOGLE DRIVE APIs
 // =========================
+{
 function gapiLoaded() {
     gapi.load('picker', () => { pickerInited = true; });
 }
@@ -557,6 +577,7 @@ function gisLoaded() {
             loadSharedDrives();
         }
     });
+
     gisInited = true;
 }
 
@@ -974,7 +995,7 @@ function renderBreadcrumbs() {
 function closeDrive() {
   document.getElementById("driveModal").classList.add("hidden");
 }
-
+}
 //old stuff from here onwards
 async function selectFile(fileId, fileName) {
     const response = await fetch(
@@ -1024,7 +1045,7 @@ async function uploadToLambda(data, filename) {
             const urlData = await urlRequest.json();
             
             const presignedS3Url = urlData.uploadUrl; 
-            console.log("this is my presigned url: ", presignedS3Url);
+            //console.log("this is my presigned url: ", presignedS3Url);
             // ✅ convert JS object → JSON file
             const payload = new Blob(
                 [JSON.stringify(data)],
@@ -1038,8 +1059,42 @@ async function uploadToLambda(data, filename) {
                 body: payload 
             });
 
-            if (s3UploadResponse.ok) alert(`🎉 ${filename} successfully uploaded!`);
-            
+            if (s3UploadResponse.ok) { // run when successfully uploaded into S3
+                alert(`🎉 ${filename} successfully uploaded!`);
+
+                if (filename === "users.json")
+                {
+                    const verifyRequest = await fetch(apiGatewayEndpoint, {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "verify_users", user_id: userId})
+                    });
+
+                    if (!verifyRequest.ok) throw new Error("Backend rejected URL request");
+                    result = await verifyRequest.json
+                    if (!result)
+                    {
+                        console.info("Returned result is: ", result);
+                    }
+                    loadVolunteerDataToUI(parsedData);
+                }
+                else if (filename === "schools.json")
+                {
+                    const verifyRequest = await fetch(apiGatewayEndpoint, {
+                        method: "POST",
+                        headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "verify_schools", user_id: userId})
+                    });
+
+                    if (!verifyRequest.ok) throw new Error("Backend rejected URL request");
+                    const result = await verifyRequest.json
+                    if (!result)
+                    {
+                        console.info("Returned result is: ", result);
+                    }
+                    loadSchoolDataToUI(parsedSchoolData);
+                }
+            }
         }
     } catch (err) {
         alert(`Pipeline error: ${err.message}`);
@@ -1076,7 +1131,7 @@ async function downloadFromLambda(filename) {
             
            // 2. Grab the correct key from your Python response
             const presignedS3Url = urlData.download_url; 
-            console.log("This is my secure S3 link: ", presignedS3Url);
+            //console.log("This is my secure S3 link: ", presignedS3Url);
 
             // 3. FETCH THE DATA DIRECTLY (No file downloads!)
             const s3Response = await fetch(presignedS3Url);
@@ -1093,19 +1148,19 @@ async function downloadFromLambda(filename) {
             
             if (filename === "users.json")
             {
-                console.info(`fetching ${filename} data from AWS!`);
+                //console.info(`fetching ${filename} data from AWS!`);
                 const CACHE_KEY1 = `${userId}_${DEFAULT_CACHE_KEY1}}`;
                 parsedData = processedData;
                 storeCache(CACHE_KEY1, parsedData);
                 loadVolunteerDataToUI(parsedData);
             } else if (filename === "schools.json") {
-                console.info(`fetching ${filename} data from AWS!`);
+                //console.info(`fetching ${filename} data from AWS!`);
                 const CACHE_KEY2 = `${userId}_${DEFAULT_CACHE_KEY2}}`;
                 parsedSchoolData = processedData;
                 storeCache(CACHE_KEY2, parsedSchoolData);
                 loadSchoolDataToUI(parsedSchoolData);
             } else {
-                console.info(`fetching ${filename} data from AWS!`);
+                //console.info(`fetching ${filename} data from AWS!`);
                 const CACHE_KEY3 = `${userId}_${DEFAULT_CACHE_KEY3}}`;
                 allocationData = processedData;
                 storeCache(CACHE_KEY3, allocationData);
@@ -1669,8 +1724,7 @@ async function startDataProcessing() {
             // Extract the rows object from AWS payload
             let schoolAssignments = parsedResponse.processed_json || parsedResponse;
 
-            const CACHE_KEY = "my_allocation_data";
-            storeCache(CACHE_KEY, schoolAssignments);
+            storeCache(DEFAULT_CACHE_KEY3, schoolAssignments);
             
             if (typeof schoolAssignments === "string") {
                 allocationData = JSON.parse(schoolAssignments);

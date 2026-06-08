@@ -466,7 +466,7 @@ async function loadSchoolDataToUI(data) {
 window.loadAllocationDataToUI = function(schoolAssignments, parsedSchoolData) {
         if (allocationTable) {
             // 1. Debug line: check exactly what your AWS Python engine returned
-            console.log("Raw backend data received:", schoolAssignments);
+            //console.log("Raw backend data received:", schoolAssignments);
 
             let tableRows = [];
 
