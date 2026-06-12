@@ -37,6 +37,10 @@ let driveState = {
     }
 };
 
+//global verification check
+let usersVeriState = false;
+let schoolsVeriState = false;
+
 // Source of Truth Data Arrays
 let parsedData = []; //volunteer data
 let parsedSchoolData = []; // school data
@@ -486,16 +490,37 @@ async function processUploadedFile(file) {
                 };
             });
             
-            loadVolunteerDataToUI(parsedData); 
+            
             //updateSummary();
             if (user && user.id_token) {
                 uploadToLambda(parsedData, "users.json");
             }
             else { //Guest save to cache
-                if (storeCache(DEFAULT_CACHE_KEY1, parsedData))
-                    console.info("Saved volunteer data to cache!");
+                const lambdaFunctionURL = "https://mmhsmpwet5fnxxszmelfguxxjy0aigsz.lambda-url.ap-southeast-1.on.aws/";
+                storeCache(DEFAULT_CACHE_KEY1, parsedData)
+                console.info("Saved volunteer data to cache!");
 
+                usersVeriState = true;
+                //call lambda to process the lats, lons, area (Pending considering if should only allow logged in user to verify so that their process can save on API calls)
+                const verifyRequest = await fetch(lambdaFunctionURL, {
+                        method: "POST",
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "verify_users", data: parsedData})
+                    });
+
+                    if (!verifyRequest.ok) throw new Error("Backend rejected URL request");
+                    const urlData = await verifyRequest.json();
+                    if (urlData?.updated_data) {
+                        console.log("Received back data from verification!");
+
+                        storeCache(DEFAULT_CACHE_KEY1, urlData.updated_data);
+                        loadVolunteerDataToUI(urlData.updated_data);
+
+                        usersVeriState = false;
+                    }
             }
+
+            loadVolunteerDataToUI(parsedData); 
         } 
         // ROUTE 2: School Page is Active
         else if (currentActiveSection === "SchoolList") {
@@ -521,25 +546,40 @@ async function processUploadedFile(file) {
                 };
             });;
             
-            loadSchoolDataToUI(parsedSchoolData); 
+            //loadSchoolDataToUI(parsedSchoolData); 
             //updateSchoolSummary();
             if (user && user.id_token) {
                 uploadToLambda(parsedSchoolData, "schools.json");
             }
             else { //Guest save to cache
+                // Endpoints configured from your previous architecture
+                const apiGatewayEndpoint = "https://yk056aw14b.execute-api.ap-southeast-1.amazonaws.com/default/NDP_SchoolTagging";
+                const lambdaFunctionURL = "https://mmhsmpwet5fnxxszmelfguxxjy0aigsz.lambda-url.ap-southeast-1.on.aws/";
                 storeCache(DEFAULT_CACHE_KEY2, parsedSchoolData);
                 console.info("Saving school data to cache!");
 
+                schoolsVeriState = true;
                 //call lambda to process the lats, lons, area (Pending considering if should only allow logged in user to verify so that their process can save on API calls)
-                const verifyRequest = await fetch(apiGatewayEndpoint, {
+                const verifyRequest = await fetch(lambdaFunctionURL, {
                         method: "POST",
-                        headers: { "Authorization": `Bearer ${idToken}`, "Content-Type": "application/json"},
-                        body: JSON.stringify({ action: "verify_schools", user_id: userId})
+                        headers: {"Content-Type": "application/json"},
+                        body: JSON.stringify({ action: "verify_schools", data: parsedSchoolData})
                     });
 
                     if (!verifyRequest.ok) throw new Error("Backend rejected URL request");
                     const urlData = await verifyRequest.json();
+                    if (urlData?.updated_data) {
+                        console.log("Received back data from verification!");
+
+                        storeCache(DEFAULT_CACHE_KEY2, urlData.updated_data);
+                        loadVolunteerDataToUI(urlData.updated_data);
+
+                        usersVeriState = false;
+                    }
+                    
             }
+
+            loadSchoolDataToUI(parsedSchoolData); 
         }
         
     };
@@ -1481,6 +1521,13 @@ function mergeWithRules(target, source) {
 // DATA PROCESSING TRIGGER
 // ==========================================
 async function startDataProcessing() {
+
+    // ==========================================
+    // Todo: currently for guest user after all data have been recieve its not showing the allocation data on the table and showing summary
+    // Todo: fix the allocation data merging system
+    // Todo: add batch processing to loggin user
+    // ==========================================
+
     try {
         // 1. Switch the UI to the processing screen
         toggleProcessingUI("processing");
@@ -1530,7 +1577,76 @@ async function startDataProcessing() {
         // ==========================================
         if (user && user.id_token) {
             console.log("Authenticated User: Initiating backend S3 processing...");
+
+            // 1. Pre-slice data
+            const allBatches = [];
+            for (let i = 0; i < total; i += BATCH_SIZE) {
+                allBatches.push(parsedData.slice(i, i + BATCH_SIZE));
+            }
+            console.log(`Prepared ${allBatches.length} total batches. Processing ${CONCURRENT_WAVES} at a time...`);
+
+            let completedCount = 0;
+            let waveResults = [];
             
+            // 2. The Concurrent Wave Engine
+            for (let i = 0; i < allBatches.length; i += CONCURRENT_WAVES) {
+                const currentWaveBatches = allBatches.slice(i, i + CONCURRENT_WAVES);
+                
+                const wavePromises = currentWaveBatches.map(async (batch) => {
+                    // Send to your secure API Gateway, but reuse the fast memory engine!
+                    const response = await fetch(apiGatewayEndpoint, {
+                        method: "POST",
+                        headers: { 
+                            "Authorization": `Bearer ${user.id_token}`,
+                            "Content-Type": "application/json" 
+                        },
+                        body: JSON.stringify({
+                            action: "process_guest", // Bypasses S3 for the intermediate chunks
+                            user_data: batch,
+                            school_data: parsedSchoolData 
+                        })
+                    });
+
+                    if (!response.ok) throw new Error(`Batch failed: ${response.statusText}`);
+
+                    const responseData = await response.json();
+                    let processedChunk = responseData.processed_json || responseData;
+                    if (typeof processedChunk === "string") processedChunk = JSON.parse(processedChunk);
+
+                    return processedChunk;
+                });
+                const currentWaveResults = await Promise.all(wavePromises);
+                waveResults = waveResults.concat(currentWaveResults);
+            }
+
+            // 3. Merge Results
+            const final = waveResults.reduce((acc, chunk) => {
+                if (!chunk) return acc;
+                return mergeWithRules(acc, chunk);
+            }, structuredClone(defaultState));
+
+            let schoolAssignments = typeof final === "string" ? JSON.parse(final) : final;
+            
+            // 4. Update UI & Local Cache
+            storeCache(DEFAULT_CACHE_KEY3, schoolAssignments);
+            toggleProcessingUI("finished", schoolAssignments);
+            
+            if (window.loadAllocationDataToUI) {
+                window.loadAllocationDataToUI(schoolAssignments, parsedSchoolData);
+            }
+
+            // 5. CRITICAL: Save final merged results back to S3 for persistent retrieval
+            console.log("Saving final results to S3 for future retrieval...");
+            try {
+                // Utilizing your existing uploadToLambda function to secure the presigned URL and PUT the data
+                await uploadToLambda(schoolAssignments, `tagged_${user.profile.sub}_allocations.json`);
+                alert("Processing & Cloud Save Complete! Data is safely stored.");
+            } catch (err) {
+                console.error("Failed to save final results to S3:", err);
+                alert("Processing complete, but cloud save failed. Data is only available locally.");
+            }
+
+            // Below is old code!!!!!!!
             const startResponse = await fetch(apiGatewayEndpoint, {
                 method: "POST",
                 headers: {
@@ -1695,28 +1811,6 @@ async function startDataProcessing() {
 
             // 4. Final UI Update
             console.log("All concurrent waves complete!");
-
-            // if (window.loadAllocationDataToUI) {
-            //     const schoolInfo = window.parsedSchoolData || {};
-            //     window.loadAllocationDataToUI(finalMasterArray, schoolInfo);
-            // }
-        
-            //toggleProcessingUI("finished", finalMasterArray);
-            
-            
-
-
-            // const response = await fetch(lambdaFunctionURL, {
-            //     method: "POST",
-            //     headers: { "Content-Type": "application/json" },
-            //     body: JSON.stringify({
-            //         action: "process_guest",
-            //         user_data: parsedData,          // Volunteer arrays
-            //         school_data: parsedSchoolData   // School arrays
-            //     })
-            // });
-
-            // if (!response.ok) throw new Error("Guest processing failed or timed out.");
 
             // const resultData = await response.json();
             let parsedResponse = typeof final === "string" ? JSON.parse(final) : final;

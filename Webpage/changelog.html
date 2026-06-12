@@ -130,7 +130,7 @@
 <h1>Changelog</h1>
 
 <div class="updated">
-    Last Updated: June 7, 2026
+    Last Updated: June 12, 2026
 </div>
 
 <!-- Work In Progress shown first -->
@@ -141,7 +141,9 @@
     <p style="margin-top: 0%;"> (Subjected to changes as and when needed)</p>
 
     <ul>
-        <li>Faster processing of data <span class="status-badge-green">ACTIVE</span></li>
+        <li>Faster processing of data for log in user. <span class="status-badge-green">ACTIVE</span></li>
+        <li>Data from AWS is merged correctly for guest users. <span class="status-badge-green">ACTIVE</span></li>
+        <li>Show the allocation data on the table when the data is done processing. <span class="status-badge-green">ACTIVE</span></li>
         <li>Faster loading of data when page is loaded <span class="status-badge-yellow">PAUSED</span></li>
         <li>User uploading new file will replace the old one only when there is changes <span class="status-badge-red">NOT STARTED</span></li></li>
         <li>Saving of Modified data <span class="status-badge-red">NOT STARTED</span></li>
@@ -150,7 +152,21 @@
     </ul>
 </div>
 <hr>
+
 <div class="version">
+    <h2 class="version-header" onclick="toggleVersion(this)">12 June 2026 Update</h2>
+
+    <div class="version-body">
+        <h3 class="improvement">Changes</h3>
+        <ul>
+            <li>Improve onemap API call rate limit handling</li>
+            <li>Users and schools coords to be processed when user import the file</li>
+            <li>Improvement to guest processing speed.</li>
+        </ul>
+    </div>
+</div>
+
+<div class="version collapsed">
     <h2 class="version-header" onclick="toggleVersion(this)">7 June 2026 Update</h2>
 
     <div class="version-body">
