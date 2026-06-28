@@ -11,6 +11,7 @@ import onemapApiHelper
 from jsondatasystem import JSONStorage
 from  exceldatasystem import ExcelStorage
 from dataStorageSystem import DataManager
+from onemapApiHelper import OneMapRateLimiter
 
 # Place this near your imports/configuration
 session = requests.Session()
@@ -19,12 +20,12 @@ session = requests.Session()
 EMAIL = "zhanghaien100@gmail.com"
 PASSWORD = "Blk-457-13@haien"
 TOKEN_FILE = "token_cache.txt"
-#geoJsonurl = f"https://api-open.data.gov.sg/v1/public/api/datasets/{dataset_id}/poll-download"
 geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
 ProcessedGeoJSON_FILE = "data/area_neighbors.json"
-user_file_path = "data/users.xlsx"
-school_file_path = "data/schools.xlsx"
+user_file_path = "data/users extended.xlsx"
+school_file_path = "data/schools extended.xlsx"
 
+rate_limiter = OneMapRateLimiter()
 # --- HELPER FUNCTIONS ---
 def check_geo_neighbour():
     # 1. Check if the final neighbor map already exists
@@ -170,32 +171,51 @@ def get_transport_data(token, start_coords, end_coords, mode="pt"):
 
 
 def verify_school_areas(school_excel_path, token):
-    # 1. Load your current "Updated" file
-    current_df = pd.read_excel(school_excel_path)
+    # Load the Excel file
+    df = pd.read_excel(school_excel_path)
 
-    # 2. Create a copy to store fresh API results
-    fresh_data = current_df.copy()
-    new_areas = []
+    print(f"Updating {len(df)} schools...")
 
-    print("Checking for changes in Planning Areas...")
-    for _, row in fresh_data.iterrows():
-        # Call API again to see what it says NOW
-        _, _, fresh_area = onemapApiHelper.geocode_address(row['address'], token)
-        new_areas.append(fresh_area)
+    for index, row in df.iterrows():
+        rate_limiter.wait_if_needed()
+        try:
+            # Try geocoding using the address
+            fresh_lat, fresh_lon, fresh_area = onemapApiHelper.geocode_address(
+                row["address"], token
+            )
+
+            # If address lookup fails, try the school name
+            if (
+                fresh_area == "UNKNOWN"
+                or (fresh_lat == 0.0 and fresh_lon == 0.0)
+            ):
+                print(f"Address lookup failed for {row['school_name']}, trying school name...")
+
+                fresh_lat, fresh_lon, fresh_area = onemapApiHelper.geocode_address(
+                    row["school_name"], token
+                )
+
+            # If either lookup succeeds, update the DataFrame
+            if not (
+                fresh_area == "UNKNOWN"
+                or (fresh_lat == 0.0 and fresh_lon == 0.0)
+            ):
+                df.at[index, "Planning Area"] = fresh_area
+                df.at[index, "Latitude"] = fresh_lat
+                df.at[index, "Longitude"] = fresh_lon
+            else:
+                print(f"Could not locate {row['school_name']}. Keeping existing values.")
+
+        except Exception as e:
+            print(f"Error processing {row['school_name']}: {e}")
+
+        # Respect OneMap rate limit
         time.sleep(0.2)
 
-    fresh_data['Planning Area'] = new_areas
+    # Save the updated file (overwrite original)
+    df.to_excel(school_excel_path, index=False)
 
-    # 3. Compare 'Planning Area' column between current and fresh
-    # This will show only the rows where the area name differs
-    changes = current_df[current_df['Planning Area'] != fresh_data['Planning Area']]
-
-    if not changes.empty:
-        print(f"🚨 Found {len(changes)} differences!")
-        print(changes[['school_name', 'Planning Area']])  # Shows old vs new logic
-        # You could save these to a 'corrections.xlsx' file
-    else:
-        print("✅ All school areas match the API records.")
+    print(f"✅ Updated file saved to {school_excel_path}")
 
 
 def process_schools(school_excel_path, token):
@@ -374,6 +394,10 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
     # --- Initialize Timing Dictionary ---
     timings = {}
     total_start = time.perf_counter()
+
+    # --- 0. Verify data -----
+    verify_school_areas(school_excel_path, token)
+
     # --- 1. PREPARE SCHOOL DATA ---
     stage1_start = time.perf_counter() # timing start
     school_df = pd.read_excel(school_excel_path)
@@ -434,7 +458,8 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
             for school in school_buckets.get(area.upper(), []):
                 # This takes 0.0001 seconds (No API call)
                 dist_km = haversine(u_lat, u_lon, school['coords'][0], school['coords'][1])
-                potential_schools.append({'school': school, 'dist_km': dist_km})
+                if dist_km < 20.0:
+                    potential_schools.append({'school': school, 'dist_km': dist_km})
 
         # Step B: Sort by physical distance first
         potential_schools.sort(key=lambda x: x['dist_km'])
@@ -502,6 +527,8 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
             current_user['reason'] = "priority 4, doesn't get assigned."
             unassigned_users.append(current_user)
             continue
+
+        rate_limiter.wait_if_needed()
 
         # Logic assumes geocode_address is defined globally
         address = current_user['address']
@@ -741,28 +768,37 @@ def main():
     token = onemapApiHelper.get_valid_token()
 
     # 1. Load your data (Assuming Excel for this example)
-    # user_df = pd.read_excel("data/users.xlsx")
-    # school_df = pd.read_excel("data/schools.xlsx")
+    user_df = pd.read_excel("data/users extended.xlsx")
+    school_df = pd.read_excel("data/schools extended.xlsx")
 
 
-    #geoneighbour_dict = check_geo_neighbour()
+    geoneighbour_dict = check_geo_neighbour()
     start = time.perf_counter()
     process_with_priority(user_file_path, school_file_path, token, ProcessedGeoJSON_FILE)
     end = time.perf_counter()
     print(f"Time taken for process to run: {end - start:.4f} seconds")
 
     # import random
+    # import string
     #
-    # test = 67
+    # test = 524
     # numbers = []
-    # while test != 0:
-    #     numbers.append(random.randrange(2,7))
-    #     test -= 1
-    # random.shuffle(numbers)
+    # words = ["No Pref", "Vegetarian", "No Seafood", "No Beef"]
+    # words2 = ["XS", "S", "M", "L", "XL", "XXL"]
+    # words3 = ["PCS", "North", "South", "PRNP"]
     #
-    # for n in numbers:
-    #     print(f"{n}")
+    # while test != 0:
+    #     #numbers.append(random.randrange(80000000, 99999999))
+    #     word = random.choice(words3)
+    #     print(f"{word}")
+    #     test -= 1
 
+    #random.shuffle(numbers)
+
+    #for n in numbers:
+    #    letter = random.choice(string.ascii_letters).upper()  # random A-Z or a-z
+    #    print(f"{n}")
+    #    print(f"{n}{letter}")
 
 
     #---Data System Testing---

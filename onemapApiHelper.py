@@ -1,6 +1,48 @@
 import requests
 import time
 import os
+import threading
+import random
+
+class OneMapRateLimiter:
+    def __init__(self):
+        self.max_calls_per_minute = 250
+        self.window_seconds = 60
+
+        self.window_start = time.time()
+        self.call_count = 0
+
+        self.lock = threading.Lock()
+
+    def wait_if_needed(self):
+        while True:
+            with self.lock:
+                now = time.time()
+
+                # Start a new window
+                if now - self.window_start >= self.window_seconds:
+                    self.window_start = now
+                    self.call_count = 0
+
+                # Under the limit
+                if self.call_count < self.max_calls_per_minute:
+                    self.call_count += 1
+                    print(
+                        f"OneMap Rate: {self.call_count}/{self.max_calls_per_minute}"
+                    )
+                    return True
+
+                # Need to wait until next window
+                wait_time = self.window_seconds - (now - self.window_start)
+                wait_time = max(wait_time, 0)
+
+            # Sleep outside the lock
+            sleep_time = wait_time + random.uniform(0.1, 0.5)
+            print(
+                f"Rate limit reached ({self.call_count}/{self.max_calls_per_minute}). "
+                f"Waiting {sleep_time:.2f}s..."
+            )
+            time.sleep(sleep_time)
 
 # Place this near your imports/configuration
 session = requests.Session()
