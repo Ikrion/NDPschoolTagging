@@ -51,6 +51,14 @@ def ui():
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
-    ui()
+    try:
+        ui()
+    except Exception as e:
+        import traceback
+
+        print("\n❌ An unexpected error occurred:\n")
+        traceback.print_exc()
+
+        input("\nPress Enter to exit...")
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
