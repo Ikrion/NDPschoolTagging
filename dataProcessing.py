@@ -24,6 +24,7 @@ geoJSON_FILE = "data/MasterPlan2025PlanningAreaBoundaryNoSea.geojson"
 ProcessedGeoJSON_FILE = "data/area_neighbors.json"
 user_file_path = "data/users extended.xlsx"
 school_file_path = "data/schools extended.xlsx"
+config_file_path = "data/Config/config.txt"
 
 rate_limiter = OneMapRateLimiter()
 # --- HELPER FUNCTIONS ---
@@ -64,54 +65,50 @@ def haversine(lat1, lon1, lat2, lon2):
     return r * c
 
 
-def create_allocation_formatter(school_assignments, school_info, final_rows):
+def create_allocation_formatter(assignment_data):
     """
     A factory that creates a custom formatting function for our specific school data.
     """
 
-    def format_excel(workbook, worksheet, sheet_name):
+    def format_excel(workbook, worksheet, final_rows):
         # We only want to apply these intense rules to the Assignments sheet
-        if sheet_name != 'Assignments':
-            # For other sheets, maybe just make the headers bold
-            header_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2', 'border': 1})
-            worksheet.set_row(0, None, header_fmt)
+        sheet_name = next(iter(assignment_data))
+        #print ("Sheetname: " ,sheet_name)
+        if sheet_name != 'assignments':
             return
 
         # --- DEFINE FORMATS ---
         yellow_row = workbook.add_format({'bg_color': '#FFFFE0'})
-        grey_cell = workbook.add_format({'bg_color': '#D3D3D3'})
-        header_fmt = workbook.add_format({'bold': True, 'bg_color': '#F2F2F2'})
+        light_red_cell = workbook.add_format({'bg_color': '#DA9694'})
 
-        # Format Header
-        worksheet.set_row(0, None, header_fmt)
-
+        assignments = assignment_data["assignments"]
         # --- APPLY HIGHLIGHTS ---
-        for r_idx, row in enumerate(final_rows):
-            s_name = row[0]  # School name is the first item in the row
-
+        for r_idx, (s_name, school_data) in enumerate(assignments.items()):
             # Note: We safely get the list, defaulting to empty if not found
-            volunteers = school_assignments.get(s_name, [])
-            max_cap = school_info[s_name]['max']
+            max_cap = school_data["Max Volunteers"]
+            volunteers = [
+                value
+                for value in school_data.values()
+                if isinstance(value, dict)
+            ]
 
             # 1. Row-Level Highlight: Unfilled Schools (Light Yellow)
             if len(volunteers) < max_cap:
                 worksheet.set_row(r_idx + 1, None, yellow_row)
 
-            # 2. Cell-Level Highlight: Travel Time >= 30 mins (Grey)
+            # 2. Cell-Level Highlight: Travel Time >= 30 mins (Light Red)
             # Ensure the volunteers match the sorted order of the export
-            volunteers_sorted = sorted(volunteers, key=lambda x: x['time_sec'])
+            volunteers_sorted = sorted(volunteers, key=lambda x: x['Total Minutes'])
 
             for v_idx, vol in enumerate(volunteers_sorted):
                 # Calculate the exact column index for "Travel Time"
                 # School(0), Max(1), Area(2) | User1(3), TIME(4)...
                 time_col_idx = 4 + (v_idx * 4)
 
-                if vol['time_sec'] >= 1800:  # 30 mins
-                    mins, secs = divmod(vol['time_sec'], 60)
-                    time_str = f"{int(mins)}m {int(secs)}s"
+                if vol['Total Minutes'] >= 30:  # 30 mins
 
                     # Paint over that specific cell
-                    worksheet.write(r_idx + 1, time_col_idx, time_str, grey_cell)
+                    worksheet.write(r_idx + 1, time_col_idx, vol['Travel Time'], light_red_cell)
 
     # Return the inner function so ExcelStorage can use it
     return format_excel
@@ -728,27 +725,77 @@ def process_with_priority(user_excel_path, school_excel_path, token, neighbors_p
         print(f"⚠️ Failed to save performance report: {e}")
 
 
-def exporttoexcel(final_rows, unassigned_users, summary_data, headers, school_assignments, school_info):
+def exporttoexcel(input_file):
+    with open(input_file, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
     try:
+        assignment_rows = []
+
+        for school_name, school_data in data["assignments"].items():
+            row = [
+                school_name,
+                school_data["Max Volunteers"],
+                school_data["Area"]
+            ]
+
+            volunteers = [
+                value
+                for value in school_data.values()
+                if isinstance(value, dict)
+            ]
+
+            volunteers.sort(key=lambda x: x["Total Minutes"])
+
+            for volunteer in volunteers:
+                row.extend([
+                    volunteer["Name"],
+                    volunteer["Travel Time"],
+                    volunteer["Total Minutes"],
+                    volunteer["Distance (meters)"]
+                ])
+
+            assignment_rows.append(row)
+
         # Prepare the data dictionary for multi-sheet export
         export_data = {
-            "Assignments": final_rows,
-            "Unassigned Users": unassigned_users,
-            "Summary Statistics": summary_data  # From your pandas summary dataframe
+            "Assignments": assignment_rows,
+            "Unassigned Users": data["unassigned_users"],
+            "Summary Statistics": data["summary_statistics"]
         }
+
+        # Find the maximum number of users assigned to any school
+        max_users = 0
+        for school, school_data in data["assignments"].items():
+            user_count = sum(
+                1 for key in school_data.keys()
+                if key.startswith("User ")
+            )
+            max_users = max(max_users, user_count)
+
+        # Build Assignment headers
+        headers = ["School", "Max Volunteers", "Area"]
+
+        for i in range(1, max_users + 1):
+            headers.extend([
+                f"User {i}",
+                "Travel Time",
+                "Minutes",
+                "Distance (m)"
+            ])
 
         # Specify exact column headers for sheets that need it
         export_columns = {
             "Assignments": headers,
-            "Unassigned Users": ['Priority', 'name', 'address'],
+            "Unassigned Users": ['Priority', 'Name', 'Address','Reason'],
             "Summary Statistics": ["Metric", "Value"]
         }
 
         # Generate the custom formatter using your current variables
-        my_formatter = create_allocation_formatter(school_assignments, school_info, final_rows)
+        my_formatter = create_allocation_formatter(data)
 
         # Initialize the OOP Storage System
-        storage = ExcelStorage("data/final_modeling_assignments.xlsx")
+        storage = ExcelStorage("data/final_school_assignments.xlsx")
         manager = DataManager(storage)
 
         # Save everything with one command
@@ -768,8 +815,8 @@ def main():
     token = onemapApiHelper.get_valid_token()
 
     # 1. Load your data (Assuming Excel for this example)
-    user_df = pd.read_excel("data/users extended.xlsx")
-    school_df = pd.read_excel("data/schools extended.xlsx")
+    #user_df = pd.read_excel("data/users extended.xlsx")
+    #school_df = pd.read_excel("data/schools extended.xlsx")
 
 
     geoneighbour_dict = check_geo_neighbour()
@@ -799,24 +846,6 @@ def main():
     #    letter = random.choice(string.ascii_letters).upper()  # random A-Z or a-z
     #    print(f"{n}")
     #    print(f"{n}{letter}")
-
-
-    #---Data System Testing---
-    # Choose storage type dynamically
-    # json_store = jsondatasystem.JSONStorage("data.json")
-    # excel_store = exceldatasystem.ExcelStorage("data.xlsx")
-    #
-    # # Plug into manager
-    # manager = dataStorageSystem.DataManager(json_store)
-    #
-    # manager.add_record({"name": "Alice", "age": 25})
-    # manager.add_record({"name": "Bob", "age": 30})
-    #
-    # print(manager.get_all())
-    #
-    # # Switch storage easily
-    # manager = dataStorageSystem.DataManager(excel_store)
-    # manager.add_record({"name": "Charlie", "age": 40})
 
 
 if __name__ == "__main__":
